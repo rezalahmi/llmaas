@@ -1,9 +1,9 @@
 # app\celery_app.py
 from celery import Celery
-from app.config import REDIS_URL
+from app.config import settings
 
 celery = Celery(
     "llm",
-    broker=f"{REDIS_URL}/0",
-    backend=f"{REDIS_URL}/1"
+    broker=f"{settings.REDIS_URL}/0",
+    backend=f"{settings.REDIS_URL}/1"
 )

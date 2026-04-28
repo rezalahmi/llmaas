@@ -3,7 +3,7 @@ import asyncio
 import json
 import httpx
 import redis.asyncio as redis
-from app.config import REDIS_URL, OLLAMA_URL
+from app.config import settings
 from app.redis_client import get_redis
 
 async def run():
@@ -19,7 +19,7 @@ async def run():
         payload["stream"] = True
 
         async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("POST", OLLAMA_URL, json=payload) as resp:
+            async with client.stream("POST", settings.OLLAMA_URL, json=payload) as resp:
                 async for line in resp.aiter_lines():
                     if not line:
                         continue

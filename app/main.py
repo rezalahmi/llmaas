@@ -6,10 +6,10 @@ import uuid, time, json
 from app.auth import get_api_key
 from app.rate_limit import check_rate_limit
 from app.token_counter import count_tokens
-from app.usage import log_usage
 from app.tasks import generate_task
 from app.utils import build_prompt
-from app.config import DEFAULT_MODEL
+from app.config import settings
+from app.usage import log_usage
 from app.redis_client import init_redis, close_redis, get_redis
 import logging
 
@@ -19,6 +19,7 @@ logging.basicConfig(
 )
 
 app = FastAPI()
+
 
 @app.on_event("startup")
 async def startup():
@@ -47,16 +48,26 @@ async def stream_response(request_id, user_id, input_tokens):
         data = msg["data"]
 
         if data == "[DONE]":
+            # ۱. محاسبه توکن‌های خروجی
             output_tokens = count_tokens(full_text)
 
-            await log_usage(
+            # ۲. ثبت مصرف و دریافت رکورد نهایی
+            usage_info = await log_usage(
                 r,
                 user_id,
-                DEFAULT_MODEL,
+                settings.DEFAULT_MODEL,
                 input_tokens,
                 output_tokens
             )
 
+            # ۳. ارسال پکت نهایی حاوی Usage (مطابق استاندارد OpenAI)
+            final_chunk = {
+                "delta": "",
+                "finish_reason": "stop",
+                "usage": usage_info  # اطلاعات مصرف اینجا به کلاینت می‌رسد
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+            
             yield "data: [DONE]\n\n"
             break
 
@@ -64,7 +75,8 @@ async def stream_response(request_id, user_id, input_tokens):
         token = parsed.get("response", "")
         full_text += token
 
-        yield f"data: {json.dumps({'delta': token})}\n\n"
+        # ارسال توکن‌های میانی
+        yield f"data: {json.dumps({'delta': token, 'usage': None})}\n\n"
 
 
 @app.post("/v1/responses")
@@ -83,7 +95,7 @@ async def responses(req: Request, user=Depends(get_api_key)):
     )
 
     payload = {
-        "model": DEFAULT_MODEL,
+        "model": settings.DEFAULT_MODEL,
         "prompt": prompt,
         "options": {
             "temperature": body.get("temperature", 0.7),
@@ -116,7 +128,7 @@ async def responses(req: Request, user=Depends(get_api_key)):
     await log_usage(
         r,
         user["user_id"],
-        DEFAULT_MODEL,
+        settings.DEFAULT_MODEL,
         input_tokens,
         output_tokens
     )

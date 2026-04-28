@@ -3,7 +3,7 @@ from fastapi import Header, HTTPException, Depends
 from app.redis_client import get_redis
 import redis.asyncio as redis
 import json
-from app.config import REDIS_URL
+from app.config import settings
 
 async def get_api_key(
     authorization: str = Header(...),

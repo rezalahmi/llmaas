@@ -16,3 +16,5 @@ async def log_usage(r, user_id, model, input_tokens, output_tokens):
 
     await r.incrby(f"usage:{user_id}", total)
     await r.lpush("usage_log", json.dumps(record))
+
+    return record
