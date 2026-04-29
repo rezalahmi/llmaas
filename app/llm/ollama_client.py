@@ -1,4 +1,4 @@
-# app\ollama_client.py
+# app\llm\ollama_client.py
 import httpx
 from app.config import settings
 
