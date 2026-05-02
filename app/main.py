@@ -38,48 +38,29 @@ async def health():
 
 
 async def stream_response(r, request_id, user_id, input_tokens):
-    # r = await get_redis()
     pubsub = r.pubsub()
     await pubsub.subscribe(f"stream:{request_id}")
 
-    full_text = ""
+    try:
+        async for msg in pubsub.listen():
+            if msg["type"] != "message":
+                continue
 
-    async for msg in pubsub.listen():
-        if msg["type"] != "message":
-            continue
+            data = msg["data"]
 
-        data = msg["data"]
+            # data نوع بایت است → به استرینگ تبدیل کن
+            if isinstance(data, bytes):
+                data = data.decode()
 
-        if data == "[DONE]":
-            # ۱. محاسبه توکن‌های خروجی
-            output_tokens = count_tokens(full_text)
+            # اگر پیام [DONE] بود
+            if data == "[DONE]":
+                yield "data: [DONE]\n\n"
+                break
 
-            # ۲. ثبت مصرف و دریافت رکورد نهایی
-            usage_info = await log_usage(
-                r,
-                user_id,
-                settings.DEFAULT_MODEL,
-                input_tokens,
-                output_tokens
-            )
-
-            # ۳. ارسال پکت نهایی حاوی Usage (مطابق استاندارد OpenAI)
-            final_chunk = {
-                "delta": "",
-                "finish_reason": "stop",
-                "usage": usage_info  # اطلاعات مصرف اینجا به کلاینت می‌رسد
-            }
-            yield f"data: {json.dumps(final_chunk)}\n\n"
-            
-            yield "data: [DONE]\n\n"
-            break
-
-        parsed = json.loads(data)
-        token = parsed.get("response", "")
-        full_text += token
-
-        # ارسال توکن‌های میانی
-        yield f"data: {json.dumps({'delta': token, 'usage': None})}\n\n"
+            # هر پیام دیگر → خود پیام را منتقل کن
+            yield data
+    finally:
+        await pubsub.unsubscribe(f"stream:{request_id}")
 
 
 @app.post("/v1/responses")
@@ -100,8 +81,9 @@ async def responses(req: Request,
     )
 
     payload = {
-        "model": settings.DEFAULT_MODEL,
+        "model": body.get("model"),
         "prompt": prompt,
+        "stream": body.get("stream"),
         "options": {
             "temperature": body.get("temperature", 0.7),
             "top_p": body.get("top_p", 0.9),

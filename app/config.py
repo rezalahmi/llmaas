@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str="redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str="redis://localhost:6379/2"
 
-    OLLAMA_URL: str = "http://localhost:11434"
+    OLLAMA_URL: str = "http://localhost:11434/api/generate"
     DEFAULT_MODEL: str = "gemma4:e4b"
 
     class Config:
