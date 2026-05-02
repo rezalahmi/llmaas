@@ -1,1 +1,6 @@
 cl100k_base.tiktoken
+wheelhouse
+tests/__pycache__/*.pyc
+app/__pycache__/*.cpython-312.pyc
+app/__pycache__/*.cpython-39.pyc
+app/services/__pycache__/*.cpython-312.pyc

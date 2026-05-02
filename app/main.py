@@ -10,6 +10,7 @@ from app.tasks import generate_task
 from app.utils import build_prompt
 from app.config import settings
 from app.usage import log_usage
+from app.services.llm_service import LLMService
 from app.redis_client import init_redis, close_redis, get_redis
 import logging
 
@@ -19,6 +20,8 @@ logging.basicConfig(
 )
 
 app = FastAPI()
+
+print("USED get_redis:", get_redis, get_redis.__module__)
 
 
 @app.on_event("startup")
@@ -34,8 +37,8 @@ async def health():
     return {"status": "ok"}
 
 
-async def stream_response(request_id, user_id, input_tokens):
-    r = await get_redis()
+async def stream_response(r, request_id, user_id, input_tokens):
+    # r = await get_redis()
     pubsub = r.pubsub()
     await pubsub.subscribe(f"stream:{request_id}")
 
@@ -80,13 +83,15 @@ async def stream_response(request_id, user_id, input_tokens):
 
 
 @app.post("/v1/responses")
-async def responses(req: Request, user=Depends(get_api_key)):
+async def responses(req: Request, 
+                    user=Depends(get_api_key),
+                    r=Depends(get_redis),):
     body = await req.json()
 
     prompt = build_prompt(body)
     input_tokens = count_tokens(prompt)
 
-    r = await get_redis()
+    # r = await get_redis()
 
     await check_rate_limit(
         r,
@@ -107,15 +112,17 @@ async def responses(req: Request, user=Depends(get_api_key)):
     if body.get("stream"):
         request_id = uuid.uuid4().hex
 
-        await r.lpush("stream_queue", json.dumps({
-            "request_id": request_id,
-            "payload": payload,
-            "user_id": user["user_id"],
-            "input_tokens": input_tokens
-        }))
+        service = LLMService(r)
+
+        await service.enqueue_stream(
+            request_id,
+            payload,
+            user["user_id"],
+            input_tokens
+        )
 
         return StreamingResponse(
-            stream_response(request_id, user["user_id"], input_tokens),
+            stream_response(r, request_id, user["user_id"], input_tokens),
             media_type="text/event-stream"
         )
 

@@ -7,7 +7,7 @@ from app.config import settings
 from app.redis_client import get_redis
 
 async def run():
-    r = get_redis()
+    r = await get_redis()
 
     while True:
         _, raw = await r.brpop("stream_queue")
