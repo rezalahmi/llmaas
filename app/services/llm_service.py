@@ -1,6 +1,6 @@
 # app/services/llm_service.py
 import json
-
+from app.tasks import generate_task
 class LLMService:
 
     def __init__(self, redis):
@@ -13,3 +13,11 @@ class LLMService:
             "user_id": user_id,
             "input_tokens": input_tokens
         }))
+
+        
+    async def generate(self, payload):
+        """
+        Non-stream mode – synchronous request handled by Celery.
+        """
+        result = generate_task.delay(payload)
+        return result.get(timeout=300)
