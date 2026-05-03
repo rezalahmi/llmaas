@@ -104,8 +104,12 @@ async def stream_response(r, request_id):
 
             yield data
 
+            if data.startswith("event: response.usage"):
+                break
+
     finally:
         await pubsub.unsubscribe(f"stream:{request_id}")
+        await pubsub.close()
 
 
 @router.post("/v1/responses")
