@@ -1,6 +1,10 @@
 # app/services/llm_service.py
 import json
-from app.tasks import generate_task
+import copy
+from app.tasks import generate_task, tools_calling_task
+
+
+
 class LLMService:
 
     def __init__(self, redis):
@@ -19,5 +23,13 @@ class LLMService:
         """
         Non-stream mode – synchronous request handled by Celery.
         """
+        
         result = generate_task.delay(payload)
+        return result.get(timeout=300)
+    
+    async def tools_calling(self, payload):
+        """
+        Non-stream mode – synchronous request handled by Celery.
+        """
+        result = tools_calling_task.delay(payload)
         return result.get(timeout=300)

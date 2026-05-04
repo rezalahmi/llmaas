@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str="redis://localhost:6379/2"
 
     OLLAMA_URL: str = "http://localhost:11434/api/generate"
+    OLLAMA_TOOLS_URL: str ="http://localhost:11434/api/chat"
     DEFAULT_MODEL: str = "gemma4:e4b"
 
     class Config:

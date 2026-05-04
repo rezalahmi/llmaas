@@ -14,30 +14,43 @@ from app.token_counter import count_tokens
 
 def format_response_created(request_id: str, model_name: str):
     """Generates the 'response.created' event."""
+    payload = {
+        "id": request_id,
+        "object": "response",
+        "created": int(time.time()),
+        "model": model_name,
+        "status": "in_progress",
+        "output": []
+    }
     return (
         "event: response.created\n"
-        f"data: {json.dumps({'id': request_id, 'object': 'response', 'model': model_name})}\n\n"
+        f"data: {json.dumps(payload)}\n\n"
     )
 
 def format_response_delta(content: str):
     """Generates the 'response.output_text.delta' event."""
+    payload = {
+        "index": 0,
+        "content_index": 0,
+        "delta": content
+    }
     return (
         "event: response.output_text.delta\n"
-        f"data: {json.dumps({'delta': content})}\n\n"
+        f"data: {json.dumps(payload)}\n\n"
     )
 
 def format_response_completed():
     """Generates the 'response.completed' event."""
     return (
         "event: response.completed\n"
-        "data: {}\n\n"
+        "data: {\"status\":\"completed\"}\n\n"
     )
 
 def format_response_usage(total_tokens: dict):
     """Generates the 'response.usage' event (optional, but good practice)."""
     return (
         "event: response.usage\n"
-        f"data:{json.dumps({"usage": total_tokens})}"
+        f"data: {json.dumps(total_tokens)}\n\n"
     )
 
 
@@ -98,6 +111,9 @@ async def run():
                                 await r.publish(f"stream:{request_id}", format_response_delta(text_delta))
 
                             if done:
+                                # ارسال event 'response.completed'
+                                await r.publish(f"stream:{request_id}", format_response_completed())
+
                                 # ارسال event 'response.usage' (اگر محاسبه شد)
                                 completion_tokens = count_tokens(completion_text)
                                 usage_payload = {
@@ -106,9 +122,6 @@ async def run():
                                     "total_tokens": prompt_tokens + completion_tokens
                                     }
                                 await r.publish(f"stream:{request_id}", format_response_usage(usage_payload))
-                                
-                                # ارسال event 'response.completed'
-                                await r.publish(f"stream:{request_id}", format_response_completed())
 
                                 break # خروج از حلقه دریافت chunk از Ollama
 
