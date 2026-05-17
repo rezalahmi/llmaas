@@ -4,6 +4,7 @@ from app.redis_client import init_redis, close_redis
 from app.routers.chat_router import router as chat_router
 from app.routers.admin_router import router as admin_router
 from app.routers.files import router as file_router
+from app.routers.vector_stores import router as vs_router
 
 app = FastAPI()
 
@@ -26,3 +27,4 @@ async def health():
 app.include_router(chat_router)
 app.include_router(admin_router)
 app.include_router(file_router)
+app.include_router(vs_router)
