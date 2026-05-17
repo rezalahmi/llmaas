@@ -8,7 +8,7 @@ import uuid # برای تولید request_id
 from app.redis_client import get_redis
 from app.config import settings
 from app.token_counter import count_tokens
-
+from app.usage import log_usage
 
 # === توابع فرمت‌دهی برای Responses API ===
 
@@ -69,6 +69,7 @@ async def run():
         data = json.loads(raw)
         
         request_id = data.get("request_id", str(uuid.uuid4())) # اگر request_id نبود، یکی بساز
+        user_id = data.get("user_id")
         payload = data["payload"]
         model_name = payload.get("model", "default-model") # نام مدل را استخراج کن
         prompt_input = payload.get("input", "")
@@ -104,8 +105,8 @@ async def run():
 
                             if text_delta:
                                 completion_text += text_delta
-                                completion_tokens_in_chunk = len(text_delta.split()) # تخمین خیلی ساده!
-                                total_completion_tokens += completion_tokens_in_chunk
+                                # completion_tokens_in_chunk = len(text_delta.split()) # تخمین خیلی ساده!
+                                # total_completion_tokens += completion_tokens_in_chunk
 
                                 # ارسال event 'response.output_text.delta'
                                 await r.publish(f"stream:{request_id}", format_response_delta(text_delta))
@@ -122,6 +123,8 @@ async def run():
                                     "total_tokens": prompt_tokens + completion_tokens
                                     }
                                 await r.publish(f"stream:{request_id}", format_response_usage(usage_payload))
+                                await log_usage(r,user_id=user_id,model=model_name,input_tokens=prompt_tokens,output_tokens=completion_tokens)
+
 
                                 break # خروج از حلقه دریافت chunk از Ollama
 

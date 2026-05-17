@@ -31,6 +31,7 @@ InputItem = Union[ChatMessage, ToolMessage, AssistantMessage]
 
 
 
+
 class ResponseRequest(BaseModel):
     model: str
     input: Union[str, List[InputItem]]

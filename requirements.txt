@@ -6,3 +6,4 @@ celery
 tiktoken
 python-dotenv
 gunicorn
+pydantic-settings
