@@ -7,3 +7,4 @@ tiktoken
 python-dotenv
 gunicorn
 pydantic-settings
+python-multipart

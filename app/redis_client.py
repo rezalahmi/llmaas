@@ -18,7 +18,3 @@ async def init_redis():
 
 async def close_redis():
     await redis_client.close()
-
-
-
-
