@@ -1,0 +1,13 @@
+services:
+
+  nginx:
+    container_name: llm_stage_nginx
+    image: nginx:latest
+    ports:
+      - "8800:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api
+
+
