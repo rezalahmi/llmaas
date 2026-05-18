@@ -24,14 +24,14 @@ async def upload_file(
     user_files_key = f"user_files:{user['user_id']}"
     await r.sadd(user_files_key, file_meta["id"])
 
-    await r.set(
+    await r.hset(
         f"file:{file_meta['id']}",
-        json.dumps({
+        mapping={
             "user_id": user["user_id"],
             "filename": file_meta["filename"],
             "bytes": file_meta["bytes"],
             "path": file_meta["path"]
-        })
+        }
     )
 
     await r.incrby(f"user_storage:{user['user_id']}", file_meta["bytes"])

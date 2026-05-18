@@ -8,3 +8,6 @@ python-dotenv
 gunicorn
 pydantic-settings
 python-multipart
+chromadb
+langchain-text-splitters
+PyMuPDF

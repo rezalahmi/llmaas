@@ -33,7 +33,13 @@ def validate_extension(filename: str):
 def save_file(file_bytes: bytes, filename: str, expires_seconds: int = 2592000):
     file_id = generate_file_id()
 
-    file_path = STORAGE_PATH / file_id
+    
+    ext = os.path.splitext(filename)[1].lower()
+
+    os.makedirs(STORAGE_PATH, exist_ok=True)
+
+    file_path = os.path.join(STORAGE_PATH, f"{file_id}{ext}")
+
 
     with open(file_path, "wb") as f:
         f.write(file_bytes)
@@ -54,7 +60,12 @@ async def save_file_stream(upload_file, expires_seconds=2592000):
     validate_extension(upload_file.filename)
 
     file_id = generate_file_id()
-    file_path = STORAGE_PATH / file_id
+
+    ext = os.path.splitext(upload_file.filename)[1].lower()
+
+    os.makedirs(STORAGE_PATH, exist_ok=True)
+
+    file_path = os.path.join(STORAGE_PATH, f"{file_id}{ext}")
 
     size = 0
 

@@ -5,6 +5,9 @@ from app.routers.chat_router import router as chat_router
 from app.routers.admin_router import router as admin_router
 from app.routers.files import router as file_router
 from app.routers.vector_stores import router as vs_router
+from app.routers.vector_store_files import router as vsf_router
+from app.routers.file_search import router as file_search_router
+
 
 app = FastAPI()
 
@@ -28,3 +31,5 @@ app.include_router(chat_router)
 app.include_router(admin_router)
 app.include_router(file_router)
 app.include_router(vs_router)
+app.include_router(vsf_router)
+app.include_router(file_search_router)
