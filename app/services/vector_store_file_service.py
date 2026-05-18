@@ -9,10 +9,6 @@ chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
 )
 
-
-
-
-
 # --- Main Service ---
 
 async def attach_file_to_vector_store(
