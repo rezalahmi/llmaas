@@ -5,3 +5,4 @@ app/__pycache__/*.cpython-312.pyc
 app/__pycache__/*.cpython-39.pyc
 app/*/__pycache__/*.cpython-312.pyc
 dev.ps1
+.env

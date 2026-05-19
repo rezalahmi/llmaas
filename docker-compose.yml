@@ -29,9 +29,12 @@ services:
       OLLAMA_URL: http://host.docker.internal:11434/api/generate
       OLLAMA_TOOLS_URL: http://host.docker.internal:11434/api/chat
       EMBEDDING_URL: http://host.docker.internal:9000/embed
+      EMBEDDING_URL_BATCH: http://host.docker.internal:9000/embed_batch
       CHROMA_PATH: /data/chroma
     volumes:
       - chroma_data:/data/chroma
+    env_file:
+      - .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -50,9 +53,12 @@ services:
       OLLAMA_URL: http://host.docker.internal:11434/api/generate
       OLLAMA_TOOLS_URL: http://host.docker.internal:11434/api/chat
       EMBEDDING_URL: http://host.docker.internal:9000/embed
+      EMBEDDING_URL_BATCH: http://host.docker.internal:9000/embed_batch
       CHROMA_PATH: /data/chroma
     volumes:
       - chroma_data:/data/chroma
+    env_file:
+      - .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

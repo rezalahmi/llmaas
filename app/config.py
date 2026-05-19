@@ -1,8 +1,12 @@
+# app\config.py
 from pydantic_settings import BaseSettings
 from typing import Optional
 
 
 class Settings(BaseSettings):
+    # Security
+    ADMIN_SECRET: Optional[str] = None
+    
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
 

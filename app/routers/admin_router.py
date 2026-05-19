@@ -3,15 +3,14 @@ import secrets
 import json
 from fastapi import APIRouter, Depends
 from app.redis_client import get_redis
-from pydantic import BaseModel
+from app.schemas.admin import KeyCreate
+from app.dependencies import verify_admin
 
 
-class KeyCreate(BaseModel):
-    user_id: int
-    user: str
-    quota: int
 
-router = APIRouter(prefix="/admin")
+router = APIRouter(
+    prefix="/admin",
+     dependencies=[Depends(verify_admin)])
 
 @router.post("/keys")
 async def create_key(data: KeyCreate, r=Depends(get_redis)):
