@@ -21,12 +21,15 @@ async def attach_file_to_vector_store(
     # 1. دریافت اطلاعات فایل از Redis
     file_meta = await redis.hgetall(f"file:{file_id}")
     if not file_meta:
-        raise ValueError("file not found")
+        raise FileNotFoundError("file not found")
 
     file_path = file_meta["path"]
     file_name = os.path.basename(file_path)
     ext = os.path.splitext(file_path)[1].lower()
-
+    full_path = os.path.join(os.getcwd(), file_path)
+    if not os.path.exists(full_path):
+        raise FileNotFoundError(f"File not found at: {full_path}")
+    
     # 2. استخراج متن بر اساس فرمت (Switch Case / IF)
     if ext == ".txt":
         raw_documents = extract_from_txt(file_path)

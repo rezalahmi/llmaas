@@ -77,6 +77,14 @@ async def attach_file(
         # خطاهای منطقی (مثلاً فرمت فایل نامعتبر برای چانکینگ)
         logger.error(f"Validation error during ingestion: {str(ve)}")
         raise HTTPException(status_code=400, detail=str(ve))
+    
+    except FileNotFoundError as e:
+        logger.error(f"Ingestion failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, 
+            detail="The file could not be processed because the source file is missing from the server storage."
+        )
+
 
     except ConnectionError:
         # خطای اتصال به ChromaDB یا سرویس Embedding

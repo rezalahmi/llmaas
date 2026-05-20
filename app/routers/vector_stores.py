@@ -83,6 +83,11 @@ async def list_vector_stores(
     user_id = user.get("user_id")
     user_vs_key = f"user_vs:{user_id}"
     logger.debug("START DEBUG list_vector_stores")
+
+    if not await r.exists(user_vs_key):
+        logger.warning(f"No vector store key found for user: {user_vs_key}")
+        return []
+    
     try:
         vs_ids = await r.smembers(user_vs_key)
         logger.debug(f"VS ids {vs_ids}")
@@ -96,10 +101,14 @@ async def list_vector_stores(
             meta = await r.hgetall(f"vs_meta:{vs_id}")
             logger.debug(f"VS metadata {meta}")
             if meta:
+                def get_val(key_bytes):
+                # چک کردن هم کلید بایت هم رشته
+                    val = meta.get(key_bytes) or meta.get(key_bytes.decode('utf-8'))
+                    return val.decode('utf-8') if isinstance(val, bytes) else str(val)
                 results.append({
                     "id": vs_id,
-                    "name": meta.get(b"name", b"Unnamed").decode('utf-8'),
-                    "created_at": int(meta.get(b"created_at", 0))
+                    "name": get_val(b"name") or "Unnamed",
+                    "created_at": int(get_val(b"created_at") or 0)
                 })
         logger.debug(f"final result {results}")
         logger.debug("END DEBUG list_vector_stores")
