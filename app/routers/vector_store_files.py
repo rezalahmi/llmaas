@@ -3,9 +3,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.schemas.vector_store_files import (
     VectorStoreFileCreate,
-    VectorStoreFileResponse
+    VectorStoreFileResponse,
+    VectorStoreFileDetachRequest,
+    VectorStoreFileDetachResponse
 )
 from app.services.vector_store_file_service import attach_file_to_vector_store
+from app.services.detach_file_service import detach_file_from_vector_store
 from app.dependencies import get_current_user
 from app.redis_client import get_redis
 
@@ -100,4 +103,40 @@ async def attach_file(
         raise HTTPException(
             status_code=500, 
             detail="An error occurred during the file processing/embedding phase."
+        )
+
+
+@router.delete(
+    "/{vector_store_id}/files/{file_id}",
+    response_model=VectorStoreFileDetachResponse
+)
+async def detach_file(
+    vector_store_id: str,
+    file_id: str,
+    req: VectorStoreFileDetachRequest,
+    user=Depends(get_current_user),
+    redis=Depends(get_redis)
+):
+
+    try:
+
+        result = await detach_file_from_vector_store(
+            redis=redis,
+            vector_store_id=vector_store_id,
+            file_id=file_id,
+            delete_file=req.delete_file
+        )
+
+        return result
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not attached to this vector store"
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not detach file"
         )

@@ -24,7 +24,7 @@ async def attach_file_to_vector_store(
         raise FileNotFoundError("file not found")
 
     file_path = file_meta["path"]
-    file_name = os.path.basename(file_path)
+    file_name = file_meta.get("filename") or os.path.basename(file_path)
     ext = os.path.splitext(file_path)[1].lower()
     full_path = os.path.join(os.getcwd(), file_path)
     if not os.path.exists(full_path):
