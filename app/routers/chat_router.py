@@ -20,16 +20,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def stream_response(r, request_id):
+async def stream_response(r, request_id, citations=None):
 
     pubsub = r.pubsub()
     
-
+    print(f"[STREAM] Opening stream for request_id={request_id}")
     try:
 
         await pubsub.subscribe(f"stream:{request_id}")
+        print(f"[STREAM] Subscribed to channel stream:{request_id}")
 
         async for msg in pubsub.listen():
+
+            print(f"[STREAM] RAW REDIS MSG: {msg}")
 
             if msg["type"] != "message":
                 continue
@@ -39,19 +42,54 @@ async def stream_response(r, request_id):
             if isinstance(data, bytes):
                 data = data.decode()
 
+            print(f"[STREAM] DATA RECEIVED: {data[:300]}")
+
+
             if data == "[DONE]":
+                
+                print("[STREAM] Received DONE from worker")
+                
+                if citations:
+                
+                    print("[STREAM] Sending citations after usage")
+                
+                    yield (
+                        "event: response.citations\n"
+                        f"data: {json.dumps({'citations': citations}, ensure_ascii=False)}\n\n"
+                    )
+                
                 yield "data: [DONE]\n\n"
+                
                 break
 
             yield data
 
             if data.startswith("event: response.usage"):
+                
+                print("[STREAM] Usage event received")
+                
+                if citations:
+                    
+                    print("[STREAM] Sending citations event")
+                    
+                    yield (
+                        "event: response.citations\n"
+                        f"data: {json.dumps({'citations': citations}, ensure_ascii=False)}\n\n"
+                    )
+
+                print("[STREAM] Stream finished after usage")
+                
+                yield "data: [DONE]\n\n"
+                
                 break
     except Exception as e:
         logger.error(f"Stream Error for request {request_id}: {str(e)}")
         yield f"data: {json.dumps({'error': 'Stream interrupted'})}\n\n"
     finally:
+        logger.info(f"[STREAM] Closing stream for request_id={request_id}")
+
         await pubsub.unsubscribe(f"stream:{request_id}")
+
         await pubsub.close()
 
 
@@ -128,13 +166,11 @@ async def create_response(
             # 2) If direct file_search → RAG pipeline
             # ===========================================
             if file_search_tool is not None:
-                print("START DEBUG DIRECT FILE SEARCH")
                 # استخراج query
                 if isinstance(req.input, list):
                     user_query = req.input[-1].text
                 else:
                     user_query = req.input
-                print(f"USER QUERY: {user_query}")
                 # ساختن FileSearchQuery
                 fs_query = FileSearchQuery(
                     vector_store_ids=file_search_tool["vector_store_ids"],
@@ -142,12 +178,10 @@ async def create_response(
                     max_results=file_search_tool.get("max_results", 5),
                     filters=file_search_tool.get("filters", None)
                 )
-
                 # اجرای retrieve
                 try:
                     
                     fs_response = await search_in_vector_store(fs_query)
-
                     sources = []
                     for i, ch in enumerate(fs_response.results, start=1):
                         meta = ch.metadata or {}
@@ -165,57 +199,99 @@ async def create_response(
                         status_code=502,
                         detail="Vector store search failed"
                     )
-
                 # تبدیل چانک‌ها به context
                 rag_prompt = build_rag_prompt_from_file_search(user_query, fs_response)
-                print(f"Len RAG Prompt: {len(rag_prompt)}")
                 # صدا زدن مدل با RAG prompt
                 input_tokens = count_tokens(rag_prompt)
-                print(f"input token: {input_tokens}")
-                payload = {
-                    "model": req.model,
-                    "prompt": rag_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": req.temperature,
-                        "top_p": req.top_p,
-                        "num_predict": req.max_output_tokens,
-                    },
-                }
+                if not req.stream:
+                    payload = {
+                        "model": req.model,
+                        "prompt": rag_prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": req.temperature,
+                            "top_p": req.top_p,
+                            "num_predict": req.max_output_tokens,
+                        },
+                    }
 
-                result = await llm.generate(payload)
-                if not result or "error" in result:
-                    logger.error("LLM Generation failed after RAG retrieval")
-                    raise HTTPException(
-                        status_code=502,
-                        detail="LLM Generation failed"
+                    result = await llm.generate(payload)
+                    if not result or "error" in result:
+                        logger.error("LLM Generation failed after RAG retrieval")
+                        raise HTTPException(
+                            status_code=502,
+                            detail="LLM Generation failed"
+                        )
+                    output = result.get("response", "") if isinstance(result, dict) else str(result)
+                    output_tokens = count_tokens(output)
+                    # خروجی نهایی استاندارد OpenAI
+                    return JSONResponse({
+                        "id": f"resp_{uuid.uuid4().hex}",
+                        "object": "response",
+                        "created": int(time.time()),
+                        "model": req.model,
+                        "usage": {
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "total_tokens": input_tokens + output_tokens,
+                        },
+                        "output": [{
+                            "id": f"msg_{uuid.uuid4().hex}",
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{
+                                "type": "output_text",
+                                "text": output
+                            }],
+                            "citations": sources
+                        }]
+                    })
+                if req.stream:
+                    # همون منطق استریم معمولی، فقط prompt همون rag_prompt است
+                    request_id = uuid.uuid4().hex
+
+                    payload = {
+                        "model": req.model,
+                        "prompt": rag_prompt,
+                        "stream": True,
+                        "options": {
+                            "temperature": req.temperature,
+                            "top_p": req.top_p,
+                            "num_predict": req.max_output_tokens,
+                        },
+                    }
+                    print(f"[RAG STREAM] request_id={request_id}")
+                    print(f"[RAG STREAM] model={req.model}")
+                    print(f"[RAG STREAM] input_tokens={input_tokens}")
+                    print(f"[RAG STREAM] citations_count={len(sources)}")
+                    # فقط preview از prompt
+                    print(f"[RAG STREAM] prompt_preview={rag_prompt[:500]}")
+                    # چک Redis
+                    try:
+                        await r.ping()
+                        print("[RAG STREAM] Redis connection OK")
+                    except Exception:
+                        logger.error(f"[RAG STREAM] Redis unavailable: {str(e)}")
+                        raise HTTPException(status_code=503, detail="Messaging queue (Redis) is unavailable")
+
+                    # enqueue برای worker مدل
+                    await llm.enqueue_stream(
+                        request_id,
+                        payload,
+                        user["user_id"],
+                        input_tokens
                     )
-                print(f"RAW RESPONSE {result}")
-                output = result.get("response", "") if isinstance(result, dict) else str(result)
-                output_tokens = count_tokens(output)
-                print("END DEBUG DIRECT FILE SEARCH")
-                # خروجی نهایی استاندارد OpenAI
-                return JSONResponse({
-                    "id": f"resp_{uuid.uuid4().hex}",
-                    "object": "response",
-                    "created": int(time.time()),
-                    "model": req.model,
-                    "usage": {
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "total_tokens": input_tokens + output_tokens,
-                    },
-                    "output": [{
-                        "id": f"msg_{uuid.uuid4().hex}",
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{
-                            "type": "output_text",
-                            "text": output
-                        }],
-                        "citations": sources
-                    }]
-                })
+                    print("[RAG STREAM] enqueue_stream DONE")
+                    # StreamingResponse که هم متن و هم citation را برمی‌گرداند
+                    return StreamingResponse(
+                        stream_response(r, request_id, sources),
+                        media_type="text/event-stream",
+                        headers={
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive"
+                        }
+                    )
+                     
 
             # ===========================================
             # 3) Other tools → normal model-driven tool calling
@@ -332,7 +408,7 @@ async def create_response(
 
         prompt = build_prompt(req)
         input_tokens = count_tokens(prompt)
-
+        print(f"DEBUG CHAT ROUTER prompt: {prompt}")
         payload = {
             "model": req.model,
             "prompt": prompt,

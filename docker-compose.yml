@@ -72,7 +72,7 @@ services:
         condition: service_healthy
     environment:
       REDIS_URL: redis://redis:6379/0
-      OLLAMA_URL: http://host.docker.internal:11434/api/chat
+      OLLAMA_URL: http://host.docker.internal:11434/api/generate
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

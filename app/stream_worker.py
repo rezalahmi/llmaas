@@ -36,7 +36,7 @@ def format_response_delta(content: str):
     }
     return (
         "event: response.output_text.delta\n"
-        f"data: {json.dumps(payload)}\n\n"
+        f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
     )
 
 def format_response_completed():
@@ -59,6 +59,7 @@ async def run():
     
     # فرض می‌کنیم Ollama URL در تنظیمات موجود است
     ollama_url = settings.OLLAMA_URL 
+    print("OLLAMA URL:", ollama_url)
 
     while True:
         # دریافت داده از صف Redis
@@ -72,16 +73,22 @@ async def run():
         user_id = data.get("user_id")
         payload = data["payload"]
         model_name = payload.get("model", "default-model") # نام مدل را استخراج کن
-        prompt_input = payload.get("input", "")
+        prompt_input = payload.get("prompt", "")
         prompt_tokens = count_tokens(prompt_input)
         # برای هدایت به URL درست Ollama
         ollama_api_endpoint = ollama_url
 
         # برای اینکه Ollama بداند باید stream کند
         payload["stream"] = True 
+        ollama_payload = {
+            "model": payload["model"],
+            "prompt": payload["prompt"],
+            "stream": True,
+        }
 
+        if "options" in payload:
+            ollama_payload["options"] = payload["options"]
         # محاسبه توکن‌ها
-        total_completion_tokens = 0
         completion_text = ""
         # اتصال به Ollama و دریافت stream
         async with httpx.AsyncClient(timeout=None) as client:
@@ -89,14 +96,17 @@ async def run():
                 # ارسال event 'response.created' به کلاینت (از طریق Redis publish)
                 await r.publish(f"stream:{request_id}", format_response_created(request_id, model_name))
 
-                async with client.stream("POST", ollama_api_endpoint, json=payload) as resp:
+                async with client.stream("POST", ollama_api_endpoint, json=ollama_payload) as resp:
                     resp.raise_for_status() # اگر خطایی در درخواست به Ollama بود، exception بدهد
 
                     async for line in resp.aiter_lines():
+
                         if not line:
                             continue
-
+                        
                         try:
+                            print("OLLAMA RAW:", line)
+
                             ollama_chunk = json.loads(line)
 
                             
@@ -105,8 +115,6 @@ async def run():
 
                             if text_delta:
                                 completion_text += text_delta
-                                # completion_tokens_in_chunk = len(text_delta.split()) # تخمین خیلی ساده!
-                                # total_completion_tokens += completion_tokens_in_chunk
 
                                 # ارسال event 'response.output_text.delta'
                                 await r.publish(f"stream:{request_id}", format_response_delta(text_delta))
