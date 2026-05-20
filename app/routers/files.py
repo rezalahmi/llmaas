@@ -104,10 +104,18 @@ async def list_user_files(user=Depends(get_current_user), r = Depends(get_redis)
             
             if meta:
                 # تبدیل بایت‌های دیکشنری به رشته/عدد
+                if "filename" in meta:
+                    filename = meta.get("filename", "Unknown")
+                    bytes_size = int(meta.get("bytes", 0))
+                else:
+                    # اگر redis bytes برگرداند
+                    filename = meta.get(b"filename", b"Unknown").decode()
+                    bytes_size = int(meta.get(b"bytes", b"0"))
+
                 files.append({
                     "file_id": fid,
-                    "filename": meta.get(b"filename", b"Unknown").decode('utf-8'),
-                    "bytes": int(meta.get(b"bytes", 0))
+                    "filename": filename,
+                    "bytes": bytes_size
                 })
             else:
                 # اگر آیدی در لیست بود ولی متادیتا نداشت (دیتای کثیف)
