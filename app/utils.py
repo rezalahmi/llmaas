@@ -31,13 +31,17 @@ def build_prompt(req: ResponseRequest) -> str:
     elif isinstance(req.input, list):
         for item in req.input:
             role = item.role.capitalize()
+
             for content in item.content:
-                if content.type == "input_text":
+
+                if content.type in ["text", "input_text"]:
                     prompt_parts.append(f"{role}: {content.text}")
 
     # End marker
     prompt_parts.append("Assistant:")
+
     return "\n".join(prompt_parts)
+
 
 
 
