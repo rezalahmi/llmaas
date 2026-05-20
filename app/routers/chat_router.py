@@ -332,7 +332,7 @@ async def create_response(
                             "id": tc.get("id"),
                             "call_id": tc.get("id"),
                             "name": fn.get("name"),
-                            "arguments": json.dumps(fn.get("arguments", {})),
+                            "arguments": json.dumps(fn.get("arguments", {}), ensure_ascii=False),
                         })
                     except Exception as e:
                             logger.warning(f"Skipping malformed tool call: {str(e)}")

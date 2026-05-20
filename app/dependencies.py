@@ -1,7 +1,8 @@
 # app\dependencies.py
 import redis
 import json
-from fastapi import Header, HTTPException, Depends, status
+from fastapi import Header, HTTPException, Depends, status, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.redis_client import get_redis
 from app.config import settings
 import os
@@ -9,15 +10,27 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# تعریف ابزار امنیتی Bearer
+security = HTTPBearer()
 
 
 
-
-async def get_current_user(x_api_key: str = Header(...),
-                     r = Depends(get_redis)):
-    data =  await r.get(f"api_key:{x_api_key}")
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    r = Depends(get_redis)
+):
+    # مقدار توکن از هدر Authorization: Bearer <TOKEN> استخراج می‌شود
+    token = credentials.credentials
+    
+    # جستجو در Redis با استفاده از توکن استخراج شده
+    data = await r.get(f"api_key:{token}")
+    
     if not data:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        raise HTTPException(
+            status_code=401, 
+            detail="Invalid or expired API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     return json.loads(data)
 
