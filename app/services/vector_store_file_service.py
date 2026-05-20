@@ -22,15 +22,27 @@ async def attach_file_to_vector_store(
 ):
     vs_file_id = f"vsfile_{vector_store_id}_{file_id}"
     
-    exists = await redis.exists(f"vector_store_file:{vs_file_id}")
+    # 1) check vector store exists
+    vs_meta = await redis.hgetall(f"vector_store:{vector_store_id}")
+    if not vs_meta:
+        raise HTTPException(status_code=404, detail="Vector store not found.")
 
-    if exists:
-        raise HTTPException(status_code=409, detail="This file is already attached to this vector store.")
-
-    # 1. دریافت اطلاعات فایل از Redis
+    # 2) check file exists
     file_meta = await redis.hgetall(f"file:{file_id}")
     if not file_meta:
-        raise FileNotFoundError("file not found")
+        raise HTTPException(status_code=404, detail="File not found.")
+    
+    # 3) duplicate check -- فقط با همین کلید استاندارد
+    already_attached = await redis.sismember(
+        f"vector_store_files:{vector_store_id}",
+        vs_file_id
+    )
+    if already_attached:
+        raise HTTPException(
+            status_code=409,
+            detail="This file is already attached to this vector store."
+        )
+
 
     file_path = file_meta["path"]
     file_name = file_meta.get("filename") or os.path.basename(file_path)
@@ -104,6 +116,7 @@ async def attach_file_to_vector_store(
 
     data = {
         "id": vs_file_id,
+        "object": "vector_store.file",
         "vector_store_id": vector_store_id,
         "file_id": file_id,
         "created_at": int(time.time()),

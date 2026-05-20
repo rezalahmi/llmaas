@@ -47,15 +47,14 @@ async def attach_file(
             detail="File metadata not found. Please re-upload the file."
         )
 
-    # ۳. جلوگیری از پردازش تکراری (Idempotency - اختیاری اما مفید)
-    # چک می‌کنیم آیا این فایل قبلاً به این Vector Store متصل شده؟
-    # (این کار مستلزم این است که در سرویس، این رابطه را در ردیس ذخیره کرده باشید)
-    is_already_attached = await r.sismember(f"vs_files:{vector_store_id}", file_id)
-    if is_already_attached:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This file is already attached to the vector store."
-        )
+    # vs_file_id = f"vsfile_{vector_store_id}_{file_id}"
+
+    # is_already_attached = await r.sismember(f"vs_files:{vector_store_id}", vs_file_id)
+    # if is_already_attached:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_409_CONFLICT,
+    #         detail="This file is already attached to the vector store."
+    #     )
 
     try:
         # ۴. اجرای عملیات اصلی (Ingestion)
@@ -70,8 +69,9 @@ async def attach_file(
             chunk_overlap=payload.chunk_overlap
         )
 
-        # ۵. ثبت موفقیت آمیز در ردیس (برای ردیابی‌های بعدی)
-        await r.sadd(f"vs_files:{vector_store_id}", file_id)
+        # # ۵. ثبت موفقیت آمیز در ردیس (برای ردیابی‌های بعدی)
+        # await r.sadd(f"vector_store_files:{vector_store_id}", vs_file_id)
+
         
         logger.info(f"Successfully attached file {file_id} to VS {vector_store_id}")
         return VectorStoreFileResponse(**result)

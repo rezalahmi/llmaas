@@ -2,8 +2,8 @@
 import logging
 import time
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.schemas.vector_stores import VectorStoreCreate, VectorStoreResponse
-from app.services.vector_store_service import create_vector_store
+from app.schemas.vector_stores import VectorStoreCreate, VectorStoreResponse, VectorStoreDeletedResponse, VectorStoreFileListResponse
+from app.services.vector_store_service import create_vector_store, delete_vector_store, list_vector_store_files
 from app.dependencies import get_current_user
 from app.redis_client import get_redis
 
@@ -82,10 +82,10 @@ async def list_vector_stores(
 ):
     user_id = user.get("user_id")
     user_vs_key = f"user_vs:{user_id}"
-    logger.debug("START DEBUG list_vector_stores")
+    print("START DEBUG list_vector_stores")
 
     if not await r.exists(user_vs_key):
-        logger.warning(f"No vector store key found for user: {user_vs_key}")
+        print(f"No vector store key found for user: {user_vs_key}")
         return []
     
     try:
@@ -98,22 +98,78 @@ async def list_vector_stores(
                 vs_id = vs_id.decode('utf-8')
             
             # دریافت متادیتای هر VS
-            meta = await r.hgetall(f"vs_meta:{vs_id}")
-            logger.debug(f"VS metadata {meta}")
+            meta = await r.hgetall(f"vector_store:{vs_id}")
+            if not meta:
+                continue
+            print(f"VS metadata {meta}")
             if meta:
                 def get_val(key_bytes):
                 # چک کردن هم کلید بایت هم رشته
-                    val = meta.get(key_bytes) or meta.get(key_bytes.decode('utf-8'))
+                    val = meta.get(key_bytes) or meta.get(key_bytes.decode())
                     return val.decode('utf-8') if isinstance(val, bytes) else str(val)
                 results.append({
                     "id": vs_id,
                     "name": get_val(b"name") or "Unnamed",
                     "created_at": int(get_val(b"created_at") or 0)
                 })
-        logger.debug(f"final result {results}")
-        logger.debug("END DEBUG list_vector_stores")
+        print(f"final result {results}")
+        print("END DEBUG list_vector_stores")
         return results
     except Exception as e:
-        logger.error(f"Error listing vector stores for user {user_id}: {e}")
+        print(f"Error listing vector stores for user {user_id}: {e}")
         raise HTTPException(status_code=503, detail="Database error.")
 
+
+
+@router.delete(
+    "/{vector_store_id}",
+    response_model=VectorStoreDeletedResponse
+)
+async def remove_vector_store(
+    vector_store_id: str,
+    delete_files: bool = False,
+    user=Depends(get_current_user),
+    redis=Depends(get_redis)
+):
+    try:
+
+        result = await delete_vector_store(
+            redis=redis,
+            vector_store_id=vector_store_id,
+            delete_files=delete_files
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete vector store"
+        )
+    
+
+
+@router.get(
+    "/{vector_store_id}/files",
+    response_model=VectorStoreFileListResponse
+)
+async def list_files_in_vector_store(
+    vector_store_id: str,
+    user=Depends(get_current_user),
+    redis=Depends(get_redis)
+):
+    try:
+        result = await list_vector_store_files(redis, vector_store_id)
+        return result
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to list vector store files"
+        )
