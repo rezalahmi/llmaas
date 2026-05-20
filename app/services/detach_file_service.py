@@ -1,3 +1,4 @@
+# app\services\detach_file_service.py
 import os
 import chromadb
 import time
@@ -14,7 +15,7 @@ async def detach_file_from_vector_store(
     delete_file: bool = False
 ):
 
-    vs_file_id = f"vsfile_{file_id}"
+    vs_file_id = f"vsfile_{vector_store_id}_{file_id}"
     vs_key = f"vector_store_file:{vs_file_id}"
 
     # بررسی اتصال
@@ -32,7 +33,7 @@ async def detach_file_from_vector_store(
     collection.delete(where={"file_id": file_id})
 
     # --- 2. حذف metadata اتصال ---
-    await redis.delete(vs_key)
+    await redis.delete(f"vector_store_file:{vs_file_id}")
 
     await redis.srem(
         f"vector_store_files:{vector_store_id}",
@@ -47,9 +48,9 @@ async def detach_file_from_vector_store(
         if file_meta:
 
             file_path = file_meta.get("path")
-
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
+            full_path = os.path.join(os.getcwd(), file_path)
+            if file_path and os.path.exists(full_path):
+                os.remove(full_path)
 
         await redis.delete(f"file:{file_id}")
 
