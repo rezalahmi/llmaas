@@ -47,14 +47,6 @@ async def attach_file(
             detail="File metadata not found. Please re-upload the file."
         )
 
-    # vs_file_id = f"vsfile_{vector_store_id}_{file_id}"
-
-    # is_already_attached = await r.sismember(f"vs_files:{vector_store_id}", vs_file_id)
-    # if is_already_attached:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_409_CONFLICT,
-    #         detail="This file is already attached to the vector store."
-    #     )
 
     try:
         # ۴. اجرای عملیات اصلی (Ingestion)

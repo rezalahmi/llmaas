@@ -15,8 +15,12 @@ ALLOWED_EXTENSIONS = {
     "jsonl",
     "csv",
     "html",
-    "docx"
+    "docx",
+    "xlsx",
+    "xls",
+    "pptx"
 }
+
 
 def generate_file_id():
     return f"file_{secrets.token_urlsafe(16)}"

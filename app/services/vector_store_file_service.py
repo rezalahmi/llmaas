@@ -5,8 +5,7 @@ import chromadb
 from fastapi import HTTPException
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.services.embedding_service import embed_texts
-from app.services.Extractors.pdf_extractor import extract_from_pdf
-from app.services.Extractors.text_extractor import extract_from_txt
+from app.services.Extractors.master_extractor import EXTRACTORS, get_raw_documents
 chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
 )
@@ -51,13 +50,18 @@ async def attach_file_to_vector_store(
     if not os.path.exists(full_path):
         raise FileNotFoundError(f"File not found at: {full_path}")
     
-    # 2. استخراج متن بر اساس فرمت (Switch Case / IF)
-    if ext == ".txt":
-        raw_documents = extract_from_txt(full_path)
-    elif ext == ".pdf":
-        raw_documents = extract_from_pdf(full_path)
-    else:
-        raise ValueError(f"Extension {ext} is not supported yet")
+    # ۱. استخراج با اکسترکتور مناسب
+    extractor = EXTRACTORS.get(ext)
+    if not extractor:
+        raise ValueError(f"Extension {ext} is not supported.")
+    raw_documents = extractor(full_path)
+    # # 2. استخراج متن بر اساس فرمت (Switch Case / IF)
+    # if ext == ".txt":
+    #     raw_documents = extract_from_txt(full_path)
+    # elif ext == ".pdf":
+    #     raw_documents = extract_from_pdf(full_path)
+    # else:
+    #     raise ValueError(f"Extension {ext} is not supported yet")
 
     # 3. تکه تکه کردن (Chunking)
     splitter = RecursiveCharacterTextSplitter(
@@ -70,7 +74,11 @@ async def attach_file_to_vector_store(
     global_chunk_index = 0
     for doc in raw_documents:
         # برای هر بخش (مثلاً هر صفحه PDF)، چانک می‌سازیم
-        chunks = splitter.split_text(doc["text"])
+        if ext in [".xlsx", ".xls", ".pptx"]:
+            chunks = [doc["text"]]
+        else:
+            chunks = splitter.split_text(doc["text"])
+            
         for i, chunk_text in enumerate(chunks):
             final_chunks.append(chunk_text)
             

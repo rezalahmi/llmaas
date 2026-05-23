@@ -1,3 +1,4 @@
+#app\services\Extractors\pdf_extractor.py
 import fitz  # PyMuPDF
 from app.services.Extractors.utils import normalize_extracted_text
 
