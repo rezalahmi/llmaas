@@ -192,6 +192,9 @@ async def create_response(
                             "page_number": meta.get("page_number"),
                             "chunk_index": meta.get("chunk_index"),
                             "score": getattr(ch, "score", None),
+                            "sheet": meta.get("sheet"),
+                            "row": meta.get("row"),
+                            "slide_number":meta.get("slide_number")
                         })
                 except Exception as e:
                     logger.error(f"Vector store search failed: {str(e)}")

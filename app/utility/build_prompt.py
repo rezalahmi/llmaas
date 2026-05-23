@@ -30,19 +30,21 @@ def build_rag_prompt_from_file_search(user_query: str, fs_response: FileSearchRe
         filename = meta.get("filename") or meta.get("file_name") or meta.get("source") or "unknown"
         page_number = meta.get("page_number", "unknown")
         section = meta.get("section", None)
-
+        # شناسایی متادیتای خاص برای Excel یا PPTX
+        sheet = meta.get("sheet")
+        row = meta.get("row")
+        slide_number = meta.get("slide_number")
         header_lines = [
             f"Chunk #{i}",
-            # f"file_id: {chunk.file_id}",
-            # f"vector_store_id: {chunk.vector_store_id}",
-            # f"document_id: {chunk.document_id}",
             f"filename: {filename}",
-            f"page_number: {page_number}",
             f"score: {chunk.score}",
         ]
-
-        if section is not None:
-            header_lines.append(f"section: {section}")
+        # اضافه کردن داینامیک متادیتا
+        if page_number: header_lines.append(f"page_number: {page_number}")
+        if sheet: header_lines.append(f"sheet: {sheet}")
+        if row: header_lines.append(f"row: {row}")
+        if slide_number: header_lines.append(f"slide_number: {slide_number}")
+        if section: header_lines.append(f"section: {section}")
 
         header = "\n".join(header_lines)
         context_parts.append(f"[منبع {i}]\n{header}\ntext:\n{chunk.text}")
@@ -70,7 +72,8 @@ def build_rag_prompt_from_file_search(user_query: str, fs_response: FileSearchRe
 {user_query}
 
 حالا یک پاسخ منسجم، کوتاه و دقیق بده.
-در متن حتماً از شماره منبع به شکل [1]، [2] و ... استفاده کن.
+- در متن حتماً از شماره منبع به شکل [1]، [2] و ... استفاده کن.
+
 """.strip()
 
     return prompt

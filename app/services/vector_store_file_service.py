@@ -55,13 +55,6 @@ async def attach_file_to_vector_store(
     if not extractor:
         raise ValueError(f"Extension {ext} is not supported.")
     raw_documents = extractor(full_path)
-    # # 2. استخراج متن بر اساس فرمت (Switch Case / IF)
-    # if ext == ".txt":
-    #     raw_documents = extract_from_txt(full_path)
-    # elif ext == ".pdf":
-    #     raw_documents = extract_from_pdf(full_path)
-    # else:
-    #     raise ValueError(f"Extension {ext} is not supported yet")
 
     # 3. تکه تکه کردن (Chunking)
     splitter = RecursiveCharacterTextSplitter(
@@ -78,7 +71,7 @@ async def attach_file_to_vector_store(
             chunks = [doc["text"]]
         else:
             chunks = splitter.split_text(doc["text"])
-            
+
         for i, chunk_text in enumerate(chunks):
             final_chunks.append(chunk_text)
             
@@ -90,7 +83,6 @@ async def attach_file_to_vector_store(
             }
             meta.update(doc["metadata"]) # اضافه کردن page_number اگر وجود داشته باشد
             final_metadatas.append(meta)
-
             global_chunk_index += 1
     
     if not final_chunks:
@@ -111,7 +103,13 @@ async def attach_file_to_vector_store(
     collection.delete(where={"file_id": file_id})
 
     ids = [f"{file_id}_{i}" for i in range(len(final_chunks))]
-
+    print(f"--- DEBUG: Upserting to Chroma ---")
+    print(f"Number of chunks: {len(final_chunks)}")
+    print(f"Sample metadata of first chunk: {final_metadatas[0]}")
+    # برای دیدن همه متادیتاها در کنسول داکر:
+    for m in final_metadatas:
+        print(f"Metadata: {m}")
+    print(f"----------------------------------")
     collection.add(
         ids=ids,
         documents=final_chunks,
