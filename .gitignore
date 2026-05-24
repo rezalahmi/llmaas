@@ -8,3 +8,4 @@ dev.ps1
 .env
 dev.ps1
 storage/files/*.pdf
+storage/files/*.docx

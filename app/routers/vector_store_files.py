@@ -1,11 +1,17 @@
 # app\routers\vector_store_files.py
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+
+import asyncio
 from app.schemas.vector_store_files import (
     VectorStoreFileCreate,
     VectorStoreFileResponse,
     VectorStoreFileDetachRequest,
     VectorStoreFileDetachResponse
+)
+from app.schemas.vector_store_batch_files import (
+    VectorStoreFileBatchCreate,
+    VectorStoreFileBatchResponse,
 )
 from app.services.vector_store_file_service import attach_file_to_vector_store
 from app.services.detach_file_service import detach_file_from_vector_store
@@ -96,6 +102,62 @@ async def attach_file(
             status_code=500, 
             detail="An error occurred during the file processing/embedding phase."
         )
+    
+
+
+    
+@router.post("/{vector_store_id}/file_batches", response_model=VectorStoreFileBatchResponse)
+async def create_file_batch(
+    vector_store_id: str,
+    payload: VectorStoreFileBatchCreate,
+    user=Depends(get_current_user),
+    r=Depends(get_redis),
+):
+    user_id = user.get("user_id")
+    
+    # تعیین پارامترهای chunking (اگر در payload نبود از پیش‌فرض استفاده کن)
+    chunk_size = payload.chunking.chunk_size if payload.chunking else 800
+    chunk_overlap = payload.chunking.chunk_overlap if payload.chunking else 400
+
+    # محدودیت تعداد فایل برای جلوگیری از فشار ناگهانی
+    if len(payload.file_ids) > 100: 
+        raise HTTPException(status_code=400, detail="Batch limit is 100 files.")
+
+    # کنترل همزمانی (اجرای همزمان ۲ فایل برای جلوگیری از بلاک شدن CPU)
+    sem = asyncio.Semaphore(2)
+
+    async def process_file(file_id: str):
+        async with sem:
+            try:
+                # چک کردن مالکیت فایل (همان منطق سرویس شما)
+                if not await r.sismember(f"user_files:{user_id}", file_id):
+                    return {"file_id": file_id, "status": "failed", "error": "Access denied"}
+                
+                # فراخوانی سرویس اصلی شما
+                data = await attach_file_to_vector_store(
+                    redis=r,
+                    vector_store_id=vector_store_id,
+                    file_id=file_id,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap
+                )
+                return {"file_id": file_id, "status": "completed", "result": data}
+            
+            except Exception as e:
+                return {"file_id": file_id, "status": "failed", "error": str(e)}
+
+    # اجرای موازی
+    tasks = [process_file(fid) for fid in payload.file_ids]
+    results = await asyncio.gather(*tasks)
+
+    return {
+        "vector_store_id": vector_store_id,
+        "status": "completed",
+        "file_results": results
+    }
+
+
+
 
 
 @router.delete(

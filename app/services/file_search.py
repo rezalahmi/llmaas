@@ -31,7 +31,7 @@ def calculate_score_from_distance(distance: float) -> float:
 
 
 async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
-    
+    # Dense Retrieva
     try:
         client = get_chroma_client()
     except Exception as e:
