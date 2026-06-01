@@ -32,6 +32,10 @@ async def create_vs(
         # مثلاً هر کاربر حداکثر ۱۰ کالکشن داشته باشد
         user_vs_key = f"user_vs:{user_id}"
         existing_count = await r.scard(user_vs_key)
+        print("DEBUG CREATE user=", user)
+        print("DEBUG CREATE user_id=", user_id)
+        print("DEBUG CREATE key=", user_vs_key)
+        print("DEBUG CREATE user scard=", await r.scard(user_vs_key))
         if existing_count >= 10:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -136,6 +140,7 @@ async def remove_vector_store(
         result = await delete_vector_store(
             redis=redis,
             vector_store_id=vector_store_id,
+            user_id=user.get("user_id"),
             delete_files=delete_files
         )
 

@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 from fastapi import HTTPException, status
 from app.services.embedding_service import embed_text
 from app.schemas.file_search import FileSearchQuery, FileSearchResultChunk, FileSearchResponse
-
+from app.services.reranker_service import rerank_results
 
 logger = logging.getLogger(__name__)
 
@@ -95,28 +95,28 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
             continue
     
     if not all_raw_results:
+        logger.info(f"[search] No results found for query='{query.query}'")
         return FileSearchResponse(results=[])
     
-
-    # منطق Deduplication
-    sorted_results = sorted(
-        all_raw_results,
-        key=lambda x: x["score"],
-        reverse=True
-    )
-
+    # فراخوانی سرویس ریرنکر
+    reranked_results = await rerank_results(query.query, all_raw_results)
+    # اگر ریرنکر چیزی برنگرداند، همان لیست خام را استفاده کن
+    sorted_results = reranked_results if reranked_results else all_raw_results
     per_file = defaultdict(list)
 
+    # چون reranked_results از قبل به ترتیب score نزولی مرتب شده،
+    # فقط کافی است به ترتیب داخل per_file بریزیم
     for r in sorted_results:
         per_file[r["file_id"]].append(r)
 
     final_results = []
 
-    # مرحله 1: بهترین نتیجه از هر فایل
+    # مرحله 1: بهترین چانک از هر فایل
     for file_id, chunks in per_file.items():
-        final_results.append(chunks[0])
+        if chunks:
+            final_results.append(chunks[0])
 
-    # مرحله 2: اگر هنوز جا بود، بقیه چانک‌ها
+    # مرحله 2: اگر هنوز ظرفیت داشتیم، بقیه چانک‌ها را اضافه کن
     if len(final_results) < query.max_results:
         for file_id, chunks in per_file.items():
             for c in chunks[1:]:
@@ -126,6 +126,7 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
             if len(final_results) >= query.max_results:
                 break
 
+    # مرتب‌سازی نهایی بر اساس score ریرنکر
     final_results = sorted(
         final_results,
         key=lambda x: x["score"],

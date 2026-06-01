@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # Ollama
     OLLAMA_URL: str = "http://host.docker.internal:11434/api/generate"
     OLLAMA_TOOLS_URL: str = "http://host.docker.internal:11434/api/chat"
+    RERANKER_URL: str = "http://host.docker.internal:9100/rerank"
 
     # Model
     DEFAULT_MODEL: str = "gemma4:e4b"

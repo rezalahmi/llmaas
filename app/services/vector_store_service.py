@@ -29,7 +29,12 @@ async def create_vector_store(redis, user_id: str, name: str | None):
     )
 
     await redis.sadd(
-        f"user_vector_stores:{user_id}",
+        f"user_vs:{user_id}",
+        vector_store_id
+    )
+
+    await redis.sadd(
+        "vector_stores",
         vector_store_id
     )
 
@@ -39,13 +44,23 @@ async def create_vector_store(redis, user_id: str, name: str | None):
 
 
 
-async def delete_vector_store(redis, vector_store_id: str, delete_files: bool = False):
+async def delete_vector_store(redis, vector_store_id: str, user_id: str, delete_files: bool = False):
 
     vs_key = f"vector_store:{vector_store_id}"
     vs_meta = await redis.hgetall(vs_key)
 
+
+
     if not vs_meta:
         raise HTTPException(status_code=404, detail="Vector store not found")
+
+    owner_id = vs_meta.get("user_id") or vs_meta.get(b"user_id")
+    if isinstance(owner_id, bytes):
+        owner_id = owner_id.decode("utf-8")
+
+    if str(owner_id) != str(user_id):
+        raise HTTPException(status_code=403, detail="Forbidden")    
+    
 
     # حذف collection در Chroma
     try:
@@ -58,6 +73,8 @@ async def delete_vector_store(redis, vector_store_id: str, delete_files: bool = 
     attached_files = await redis.smembers(vs_files_key)
 
     for vs_file_id in attached_files:
+        if isinstance(vs_file_id, bytes):
+            vs_file_id = vs_file_id.decode("utf-8")
 
         await redis.delete(f"vector_store_file:{vs_file_id}")
 
@@ -69,7 +86,9 @@ async def delete_vector_store(redis, vector_store_id: str, delete_files: bool = 
             file_meta = await redis.hgetall(f"file:{file_id}")
 
             if file_meta:
-                file_path = file_meta.get("path")
+                file_path = file_meta.get("path") or file_meta.get(b"path")
+                if isinstance(file_path, bytes):
+                    file_path = file_path.decode("utf-8")
 
                 if file_path:
                     full_path = os.path.join(os.getcwd(), file_path)
@@ -80,9 +99,9 @@ async def delete_vector_store(redis, vector_store_id: str, delete_files: bool = 
             await redis.delete(f"file:{file_id}")
 
     await redis.delete(vs_files_key)
-
     await redis.delete(vs_key)
 
+    await redis.srem(f"user_vs:{user_id}", vector_store_id)
     await redis.srem("vector_stores", vector_store_id)
 
     return {
