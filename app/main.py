@@ -7,7 +7,7 @@ from app.routers.files import router as file_router
 from app.routers.vector_stores import router as vs_router
 from app.routers.vector_store_files import router as vsf_router
 from app.routers.file_search import router as file_search_router
-
+from app.postgres_client import connect_postgres, close_postgres
 
 app = FastAPI()
 
@@ -15,11 +15,13 @@ app = FastAPI()
 @app.on_event("startup")
 async def startup():
     await init_redis()
+    await connect_postgres()
 
 
 @app.on_event("shutdown")
 async def shutdown():
     await close_redis()
+    await close_postgres()
 
 
 @app.get("/health")

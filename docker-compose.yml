@@ -14,6 +14,22 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
   api:
     build:
       context: .
@@ -21,6 +37,8 @@ services:
     restart: always
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     environment:
       REDIS_URL: redis://redis:6379/0
@@ -30,6 +48,8 @@ services:
       OLLAMA_TOOLS_URL: http://host.docker.internal:11434/api/chat
       EMBEDDING_URL: http://host.docker.internal:9000/embed
       EMBEDDING_URL_BATCH: http://host.docker.internal:9000/embed_batch
+      RERANKER_URL: http://host.docker.internal:9100/rerank
+      DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
       CHROMA_PATH: /data/chroma
     volumes:
       - chroma_data:/data/chroma
@@ -46,6 +66,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -54,6 +76,8 @@ services:
       OLLAMA_TOOLS_URL: http://host.docker.internal:11434/api/chat
       EMBEDDING_URL: http://host.docker.internal:9000/embed
       EMBEDDING_URL_BATCH: http://host.docker.internal:9000/embed_batch
+      RERANKER_URL: http://host.docker.internal:9100/rerank
+      DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
       CHROMA_PATH: /data/chroma
     volumes:
       - chroma_data:/data/chroma
@@ -79,3 +103,4 @@ services:
 volumes:
   redis_data:
   chroma_data:
+  postgres_data:

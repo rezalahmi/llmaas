@@ -1,13 +1,74 @@
 services:
-
   nginx:
     container_name: llm_stage_nginx
     image: nginx:latest
     ports:
       - "8800:80"
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - api
 
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile.stage
+    # در stage معمولاً port publish نمی‌کنیم؛ nginx بهش وصل میشه
+    expose:
+      - "8000"
+    environment:
+      # حتماً این را اصلاح کن برای asyncpg:
+      DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
 
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+
+      OLLAMA_URL: http://host.docker.internal:11434/api/generate
+      OLLAMA_TOOLS_URL: http://host.docker.internal:11434/api/chat
+      EMBEDDING_URL: http://host.docker.internal:9000/embed
+      EMBEDDING_URL_BATCH: http://host.docker.internal:9000/embed_batch
+      RERANKER_URL: http://host.docker.internal:9100/rerank
+
+      CHROMA_PATH: /data/chroma
+    volumes:
+      - chroma_data:/data/chroma
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile.stage
+    environment:
+      DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      OLLAMA_URL: http://host.docker.internal:11434/api/generate
+      OLLAMA_TOOLS_URL: http://host.docker.internal:11434/api/chat
+      EMBEDDING_URL: http://host.docker.internal:9000/embed
+      EMBEDDING_URL_BATCH: http://host.docker.internal:9000/embed_batch
+      RERANKER_URL: http://host.docker.internal:9100/rerank
+      CHROMA_PATH: /data/chroma
+    volumes:
+      - chroma_data:/data/chroma
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  stream_worker:
+    build:
+      context: .
+      dockerfile: docker/stream.Dockerfile.stage
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_URL: http://host.docker.internal:11434/api/generate
+      DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  
