@@ -12,6 +12,7 @@ from app.services.file_metadata_service import (
     mark_file_ready,
     mark_file_failed,
     list_files_by_user,
+    delete_file_record
 )
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ async def upload_file(
 ):
     
     external_user_id = user.get("external_user_id")
-    api_key_id = user.get("api_key_id")
+    api_key_id = user.get("id")
 
     logger.info(f"UPLOAD user payload: {user}")
     logger.info(f"UPLOAD external_user_id={external_user_id}, api_key_id={api_key_id}")
@@ -92,7 +93,7 @@ async def list_user_files(
     print(f"START DEBUG LIST USER FILES")
     print(f"user data {user}")
     user_id = user.get("external_user_id")
-
+    api_key_id = user.get("id")
     try:
         rows = await list_files_by_user(pg, external_user_id=user_id)
 
@@ -113,3 +114,31 @@ async def list_user_files(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not retrieve file list from database."
         )
+
+
+@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_file(
+    file_id: str,
+    user=Depends(get_current_user),
+    pg=Depends(get_pg),
+):
+    # گرفتن اطلاعات هویتی
+    api_key_id = user.get("id")
+    external_user_id = user.get("external_user_id")
+    logger.info(f"DEBUG: Attempting to delete file {file_id} using api_key_id: {api_key_id}")
+    # تلاش برای حذف (بر اساس صاحب فایل)
+    # توجه: اینجا چک می‌کنیم که فایل حتماً متعلق به این API Key باشد
+    result = await delete_file_record(pg, file_id=file_id, api_key_id=api_key_id)
+    logger.info(f"DEBUG: Delete result count: {result}")
+    # اگر ردیفی تغییر نکرد، یعنی یا فایل وجود ندارد یا متعلق به این کاربر نیست
+    if result == "UPDATE 0":
+        logger.warning(f"Delete failed: File {file_id} not found or access denied for key {api_key_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found or you don't have permission to delete it."
+        )
+
+    logger.info(f"File {file_id} marked as deleted by key {api_key_id}")
+    
+    # چون status_code=204 است، بدنه برنمی‌گردانیم
+    return None

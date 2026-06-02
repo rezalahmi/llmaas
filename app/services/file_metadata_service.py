@@ -126,3 +126,22 @@ async def list_files_by_user(
     )
 
     return [dict(row) for row in rows]
+
+
+async def delete_file_record(pg, *, file_id: str, api_key_id: str):
+    """
+    فایل را به صورت منطقی (Soft Delete) حذف می‌کند.
+    فقط در صورتی که فایل متعلق به همان API Key باشد.
+    """
+    return await pg.execute(
+        """
+        UPDATE files
+        SET deleted_at = NOW(),
+            status = 'deleted'
+        WHERE id = $1 
+          AND api_key_id = $2
+          AND deleted_at IS NULL
+        """,
+        file_id,
+        api_key_id
+    )
