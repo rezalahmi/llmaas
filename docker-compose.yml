@@ -53,6 +53,7 @@ services:
       CHROMA_PATH: /data/chroma
     volumes:
       - chroma_data:/data/chroma
+      - ./storage:/app/storage
     env_file:
       - .env
     extra_hosts:
@@ -81,6 +82,7 @@ services:
       CHROMA_PATH: /data/chroma
     volumes:
       - chroma_data:/data/chroma
+      - ./storage:/app/storage
     env_file:
       - .env
     extra_hosts:

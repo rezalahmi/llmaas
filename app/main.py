@@ -16,6 +16,7 @@ app = FastAPI()
 async def startup():
     await get_redis_connection()
     await connect_postgres()
+    
 
 
 @app.on_event("shutdown")

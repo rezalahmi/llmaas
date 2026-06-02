@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import logging
-
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -148,3 +148,25 @@ async def delete_file_record(pg, *, file_id: str, api_key_id: str):
         file_id,
         api_key_id
     )
+
+
+async def get_file_metadata(pg, file_id: str):
+    """
+    اطلاعات فایل را از جدول files در Postgres بازیابی می‌کند.
+    """
+    query = """
+        SELECT id, storage_path, filename, ext, api_key_id, external_user_id, status 
+        FROM files 
+        WHERE id = $1
+    """
+    try:
+        record = await pg.fetchrow(query, file_id)
+        if not record:
+            return None
+        
+        # تبدیل record به dict برای راحتی کار
+        return dict(record)
+        
+    except Exception as e:
+        logger.error(f"Database error while fetching file {file_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error occurred.")

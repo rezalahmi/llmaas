@@ -1,10 +1,11 @@
-import os
-import hashlib
-import secrets
 from pathlib import Path
+import hashlib
+import os
+import secrets
 from datetime import datetime, timedelta
 
-STORAGE_PATH = Path("storage/files")
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+STORAGE_PATH = BASE_DIR / "storage" / "files"
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
 
 
@@ -43,7 +44,7 @@ def save_file(file_bytes: bytes, filename: str, expires_seconds: int = 2592000):
 
     os.makedirs(STORAGE_PATH, exist_ok=True)
 
-    file_path = os.path.join(STORAGE_PATH, f"{file_id}{ext}")
+    file_path = STORAGE_PATH / f"{file_id}{ext}"
 
 
     with open(file_path, "wb") as f:
@@ -52,6 +53,7 @@ def save_file(file_bytes: bytes, filename: str, expires_seconds: int = 2592000):
     metadata = {
         "id": file_id,
         "filename": filename,
+        "path": str(file_path),
         "bytes": len(file_bytes),
         "created_at": int(datetime.utcnow().timestamp()),
         "expires_at": int((datetime.utcnow() + timedelta(seconds=expires_seconds)).timestamp())

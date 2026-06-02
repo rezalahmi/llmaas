@@ -1,8 +1,8 @@
 # app\routers\vector_store_files.py
 import logging
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 
-import asyncio
 from app.schemas.vector_store_files import (
     VectorStoreFileCreate,
     VectorStoreFileResponse,
@@ -13,10 +13,19 @@ from app.schemas.vector_store_batch_files import (
     VectorStoreFileBatchCreate,
     VectorStoreFileBatchResponse,
 )
-from app.services.vector_store_file_service import attach_file_to_vector_store
-from app.services.detach_file_service import detach_file_from_vector_store
+
+from app.postgres_client import get_pool 
+
+# سرویس‌های جدید که باید بسازیم یا اصلاح کنیم
+from app.services.vector_store_file_service import attach_file_to_vector_store, detach_file_from_vector_store_pg
+from app.services.vector_store_metadata_service import (
+    get_vector_store_for_owner,
+    attach_file_to_vector_store as db_attach_file
+)
+from app.services.file_metadata_service import get_file_metadata 
+
 from app.dependencies import get_current_user
-from app.redis_client import get_redis
+from app.postgres_client import get_pg
 
 logger = logging.getLogger(__name__)
 
@@ -30,123 +39,104 @@ async def attach_file(
     vector_store_id: str,
     payload: VectorStoreFileCreate,
     user=Depends(get_current_user),
-    r=Depends(get_redis)
+    pg=Depends(get_pg)
 ):
-    user_id = user.get("user_id")
+    api_key_id = user.get("id")
+    external_user_id = user.get("external_user_id")
     file_id = payload.file_id
 
-    # ۱. اعتبارسنجی مالکیت فایل (Security Check)
-    # بررسی می‌کنیم که آیا این فایل در لیست فایل‌های این کاربر هست یا خیر
-    is_owner = await r.sismember(f"user_files:{user_id}", file_id)
-    if not is_owner:
-        logger.warning(f"Unauthorized access attempt: User {user_id} tried to access file {file_id}")
-        raise HTTPException(
+    # ۱. بررسی وجود و مالکیت Vector Store
+    vs = await get_vector_store_for_owner(pg, vector_store_id=vector_store_id, api_key_id=api_key_id)
+    if not vs:
+        raise HTTPException(status_code=404, detail="Vector store not found.")
+
+    # ۲. بررسی وجود و مالکیت فایل در Postgres
+    file_record = await get_file_metadata(pg, file_id) # مطمئن شو این تابع api_key_id را هم چک می‌کند
+    if not file_record or file_record["api_key_id"] != api_key_id:
+         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to access this file or the file does not exist."
         )
 
-    # ۲. بررسی وجود متادیتای فایل در ردیس
-    file_exists = await r.exists(f"file:{file_id}")
-    if not file_exists:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File metadata not found. Please re-upload the file."
-        )
-
+    if file_record["status"] != "ready":
+        raise HTTPException(status_code=400, detail="File is not ready for processing.")
 
     try:
-        # ۴. اجرای عملیات اصلی (Ingestion)
-        # نکته: اگر این پروسه خیلی طولانی است، باید از BackgroundTasks یا Celery استفاده کرد.
-        logger.info(f"Starting ingestion for file {file_id} into VS {vector_store_id}")
-        
+        # ۳. ثبت در دیتابیس (وضعیت در حال پردازش)
+        await db_attach_file(
+            pg, 
+            vector_store_id=vector_store_id, 
+            file_id=file_id, 
+            external_user_id=external_user_id, 
+            api_key_id=api_key_id,
+            status="processing"
+        )
+
+        # ۴. اجرای عملیات Ingestion (استخراج متن و Chroma)
+        # نکته: در آینده این بخش باید برود در BackgroundTask
         result = await attach_file_to_vector_store(
-            redis=r,
+            pg=pg,
             vector_store_id=vector_store_id,
             file_id=file_id,
-            chunk_size=payload.chunk_size,
-            chunk_overlap=payload.chunk_overlap
+            file_record=file_record,
+            chunk_size=payload.chunk_size or 800,
+            chunk_overlap=payload.chunk_overlap or 400
         )
 
-        # # ۵. ثبت موفقیت آمیز در ردیس (برای ردیابی‌های بعدی)
-        # await r.sadd(f"vector_store_files:{vector_store_id}", vs_file_id)
-
-        
-        logger.info(f"Successfully attached file {file_id} to VS {vector_store_id}")
         return VectorStoreFileResponse(**result)
 
-    except ValueError as ve:
-        # خطاهای منطقی (مثلاً فرمت فایل نامعتبر برای چانکینگ)
-        logger.error(f"Validation error during ingestion: {str(ve)}")
-        raise HTTPException(status_code=400, detail=str(ve))
-    
-    except FileNotFoundError as e:
-        logger.error(f"Ingestion failed: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, 
-            detail="The file could not be processed because the source file is missing from the server storage."
-        )
-
-
-    except ConnectionError:
-        # خطای اتصال به ChromaDB یا سرویس Embedding
-        logger.error("External service connection failed during ingestion")
-        raise HTTPException(
-            status_code=503, 
-            detail="Ingestion service is temporarily unavailable. Please try again later."
-        )
-
     except Exception as e:
-        # خطاهای غیرمنتظره
         logger.error(f"Unexpected error during ingestion: {str(e)}", exc_info=True)
+        # آپدیت وضعیت به failed در دیتابیس (اختیاری)
         raise HTTPException(
             status_code=500, 
-            detail="An error occurred during the file processing/embedding phase."
+            detail=f"An error occurred: {str(e)}"
         )
-    
-
-
     
 @router.post("/{vector_store_id}/file_batches", response_model=VectorStoreFileBatchResponse)
 async def create_file_batch(
     vector_store_id: str,
     payload: VectorStoreFileBatchCreate,
     user=Depends(get_current_user),
-    r=Depends(get_redis),
+    pool=Depends(get_pool),
 ):
-    user_id = user.get("user_id")
-    
-    # تعیین پارامترهای chunking (اگر در payload نبود از پیش‌فرض استفاده کن)
-    chunk_size = payload.chunking.chunk_size if payload.chunking else 800
-    chunk_overlap = payload.chunking.chunk_overlap if payload.chunking else 400
+    api_key_id = user.get("id")
 
-    # محدودیت تعداد فایل برای جلوگیری از فشار ناگهانی
-    if len(payload.file_ids) > 100: 
-        raise HTTPException(status_code=400, detail="Batch limit is 100 files.")
+    # بررسی اولیه با یک کانکشن که از Pool می‌گیرید
+    async with pool.acquire() as conn:
+        vs = await get_vector_store_for_owner(conn, vector_store_id=vector_store_id, api_key_id=api_key_id)
+        if not vs:
+            raise HTTPException(status_code=404, detail="Vector store not found.")
 
-    # کنترل همزمانی (اجرای همزمان ۲ فایل برای جلوگیری از بلاک شدن CPU)
     sem = asyncio.Semaphore(2)
 
     async def process_file(file_id: str):
         async with sem:
-            try:
-                # چک کردن مالکیت فایل (همان منطق سرویس شما)
-                if not await r.sismember(f"user_files:{user_id}", file_id):
-                    return {"file_id": file_id, "status": "failed", "error": "Access denied"}
-                
-                # فراخوانی سرویس اصلی شما
-                data = await attach_file_to_vector_store(
-                    redis=r,
-                    vector_store_id=vector_store_id,
-                    file_id=file_id,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap
-                )
-                return {"file_id": file_id, "status": "completed", "result": data}
-            
-            except Exception as e:
-                return {"file_id": file_id, "status": "failed", "error": str(e)}
+            # هر تسک، کانکشنِ اختصاصی خودش را از Pool می‌گیرد
+            async with pool.acquire() as conn:
+                try:
+                    file_record = await get_file_metadata(conn, file_id)
+                    if not file_record:
+                        return {"file_id": file_id, "status": "failed", "error": "File not found"}
+                    
+                    if file_record.get("api_key_id") != api_key_id:
+                        return {"file_id": file_id, "status": "failed", "error": "Access denied"}
 
-    # اجرای موازی
+                    # پردازش اصلی
+                    data = await attach_file_to_vector_store(
+                        pg=conn,  # کانکشن اختصاصی این تسک
+                        vector_store_id=vector_store_id,
+                        file_id=file_id,
+                        file_record=file_record,
+                        chunk_size=payload.chunking.chunk_size,
+                        chunk_overlap=payload.chunking.chunk_overlap
+                    )
+                    return {"file_id": file_id, "status": "completed", "result": data}
+                
+                except Exception as e:
+                    logger.error(f"Batch ingestion failed for {file_id}: {e}", exc_info=True)
+                    return {"file_id": file_id, "status": "failed", "error": str(e)}
+
     tasks = [process_file(fid) for fid in payload.file_ids]
     results = await asyncio.gather(*tasks)
 
@@ -155,8 +145,6 @@ async def create_file_batch(
         "status": "completed",
         "file_results": results
     }
-
-
 
 
 
@@ -169,18 +157,18 @@ async def detach_file(
     file_id: str,
     req: VectorStoreFileDetachRequest,
     user=Depends(get_current_user),
-    redis=Depends(get_redis)
+    pg=Depends(get_pg),
 ):
+    api_key_id = user.get("id")
 
     try:
-
-        result = await detach_file_from_vector_store(
-            redis=redis,
+        result = await detach_file_from_vector_store_pg(
+            pg=pg,
             vector_store_id=vector_store_id,
             file_id=file_id,
+            api_key_id=api_key_id,
             delete_file=req.delete_file
         )
-
         return result
 
     except FileNotFoundError:
@@ -188,8 +176,10 @@ async def detach_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not attached to this vector store"
         )
-
-    except Exception:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Could not detach file: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not detach file"

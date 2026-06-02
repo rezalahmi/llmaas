@@ -3,8 +3,7 @@
 import os
 import asyncpg
 
-_pool = None
-
+_pool: asyncpg.Pool | None = None
 
 async def connect_postgres():
     global _pool
@@ -35,3 +34,9 @@ async def get_pg():
 
     async with _pool.acquire() as conn:
         yield conn
+
+
+def get_pool() -> asyncpg.Pool:
+    if _pool is None:
+        raise RuntimeError("Postgres pool is not initialized")
+    return _pool
