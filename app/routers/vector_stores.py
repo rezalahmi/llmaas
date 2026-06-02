@@ -1,180 +1,259 @@
-# app\routers\vector_stores.py
 import logging
 import time
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.schemas.vector_stores import VectorStoreCreate, VectorStoreResponse, VectorStoreDeletedResponse, VectorStoreFileListResponse
-from app.services.vector_store_service import create_vector_store, delete_vector_store, list_vector_store_files
+
+from app.schemas.vector_stores import (
+    VectorStoreCreate,
+    VectorStoreResponse,
+    VectorStoreDeletedResponse,
+    VectorStoreFileListResponse,
+)
+
 from app.dependencies import get_current_user
-from app.redis_client import get_redis
+from app.postgres_client import get_pg
+
+from app.services.vector_store_service import (
+    create_chroma_collection,
+    delete_chroma_collection,
+)
+
+from app.services.vector_store_metadata_service import (
+    generate_vector_store_id,
+    create_vector_store_record,
+    mark_vector_store_failed,
+    count_user_vector_stores,
+    list_vector_stores_by_api_key,
+    get_vector_store_for_owner,
+    soft_delete_vector_store,
+    soft_delete_vector_store_files,
+    list_vector_store_files_by_owner,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/vector_stores", tags=["Vector Stores"])
 
+
 @router.post("/", response_model=VectorStoreResponse)
 async def create_vs(
     payload: VectorStoreCreate,
     user=Depends(get_current_user),
-    r=Depends(get_redis)
+    pg=Depends(get_pg),
 ):
-    user_id = user.get("user_id")
-    
-    # ۱. اعتبارسنجی ورودی
-    name = payload.name.strip()
+    external_user_id = user.get("external_user_id")
+    api_key_id = user.get("id")
+
+    if api_key_id is None:
+        api_key_id = user.get("api_key_id")
+
+    name = payload.name.strip() if payload.name else None
+
     if not name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Vector store name cannot be empty."
         )
 
-    try:
-        # ۲. چک کردن محدودیت تعداد (Business Logic)
-        # مثلاً هر کاربر حداکثر ۱۰ کالکشن داشته باشد
-        user_vs_key = f"user_vs:{user_id}"
-        existing_count = await r.scard(user_vs_key)
-        print("DEBUG CREATE user=", user)
-        print("DEBUG CREATE user_id=", user_id)
-        print("DEBUG CREATE key=", user_vs_key)
-        print("DEBUG CREATE user scard=", await r.scard(user_vs_key))
-        if existing_count >= 10:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You have reached the maximum limit of 10 vector stores."
-            )
+    existing_count = await count_user_vector_stores(pg, api_key_id=api_key_id)
 
-        # ۳. فراخوانی سرویس برای ایجاد کالکشن در Chroma و ثبت در Redis
-        try:
-            # سرویس داخلی باید هندل کند که اگر در Chroma ساخته شد اما در ردیس نشد، Rollback کند
-            vs = await create_vector_store(
-                r,
-                user_id=user_id,
-                name=name
-            )
-        except Exception as e:
-            logger.error(f"Service Layer Error while creating VS: {str(e)}")
-            # اگر خطای خاصی از سمت سرویس (مثل تکراری بودن نام در Chroma) بیاید:
-            if "already exists" in str(e).lower():
-                raise HTTPException(status_code=409, detail="A vector store with this ID already exists.")
-            raise HTTPException(status_code=502, detail="Failed to create vector store in the backend.")
-
-        # ۴. اطمینان از ثبت در لیست کالکشن‌های کاربر
-        # این مرحله معمولاً داخل سرویس انجام می‌شود، اما برای اطمینان مجدد:
-        await r.sadd(user_vs_key, vs["id"])
-
-        logger.info(f"User {user_id} created a new vector store: {vs['id']} ({name})")
-        
-        return VectorStoreResponse(
-            id=vs["id"],
-            name=vs["name"],
-            created_at=vs.get("created_at", int(time.time()))
-        )
-
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        logger.error(f"Unexpected error in create_vs: {str(e)}", exc_info=True)
+    if existing_count >= 10:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while creating the vector store."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You have reached the maximum limit of 10 vector stores."
         )
 
-# اضافه کردن متد List برای تکمیل Robustness
+    vector_store_id = generate_vector_store_id()
+    collection_name = vector_store_id
+
+    try:
+        create_chroma_collection(collection_name)
+
+        row = await create_vector_store_record(
+            pg,
+            vector_store_id=vector_store_id,
+            external_user_id=external_user_id,
+            api_key_id=api_key_id,
+            name=name,
+            collection_name=collection_name,
+        )
+
+        logger.info(
+            f"User api_key_id={api_key_id} created vector store {vector_store_id}"
+        )
+
+        return VectorStoreResponse(
+            id=row["id"],
+            name=row["name"],
+            created_at=row["created_at"],
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.error(f"Failed to create vector store: {str(e)}", exc_info=True)
+
+        try:
+            delete_chroma_collection(collection_name)
+        except Exception:
+            pass
+
+        try:
+            await mark_vector_store_failed(
+                pg,
+                vector_store_id=vector_store_id,
+                error=str(e),
+            )
+        except Exception:
+            pass
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to create vector store in the backend."
+        )
+
+
 @router.get("/", response_model=list[VectorStoreResponse])
 async def list_vector_stores(
     user=Depends(get_current_user),
-    r=Depends(get_redis)
+    pg=Depends(get_pg),
 ):
-    user_id = user.get("user_id")
-    user_vs_key = f"user_vs:{user_id}"
-    print("START DEBUG list_vector_stores")
+    api_key_id = user.get("id")
 
-    if not await r.exists(user_vs_key):
-        print(f"No vector store key found for user: {user_vs_key}")
-        return []
-    
-    try:
-        vs_ids = await r.smembers(user_vs_key)
-        logger.debug(f"VS ids {vs_ids}")
-        results = []
-        
-        for vs_id in vs_ids:
-            if isinstance(vs_id, bytes):
-                vs_id = vs_id.decode('utf-8')
-            
-            # دریافت متادیتای هر VS
-            meta = await r.hgetall(f"vector_store:{vs_id}")
-            if not meta:
-                continue
-            print(f"VS metadata {meta}")
-            if meta:
-                def get_val(key_bytes):
-                # چک کردن هم کلید بایت هم رشته
-                    val = meta.get(key_bytes) or meta.get(key_bytes.decode())
-                    return val.decode('utf-8') if isinstance(val, bytes) else str(val)
-                results.append({
-                    "id": vs_id,
-                    "name": get_val(b"name") or "Unnamed",
-                    "created_at": int(get_val(b"created_at") or 0)
-                })
-        print(f"final result {results}")
-        print("END DEBUG list_vector_stores")
-        return results
-    except Exception as e:
-        print(f"Error listing vector stores for user {user_id}: {e}")
-        raise HTTPException(status_code=503, detail="Database error.")
+    if api_key_id is None:
+        api_key_id = user.get("api_key_id")
 
+    rows = await list_vector_stores_by_api_key(
+        pg,
+        api_key_id=api_key_id,
+    )
+
+    return [
+        VectorStoreResponse(
+            id=row["id"],
+            name=row["name"],
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
 
 
 @router.delete(
     "/{vector_store_id}",
-    response_model=VectorStoreDeletedResponse
+    response_model=VectorStoreDeletedResponse,
 )
 async def remove_vector_store(
     vector_store_id: str,
     delete_files: bool = False,
     user=Depends(get_current_user),
-    redis=Depends(get_redis)
+    pg=Depends(get_pg),
 ):
-    try:
+    api_key_id = user.get("id")
 
-        result = await delete_vector_store(
-            redis=redis,
-            vector_store_id=vector_store_id,
-            user_id=user.get("user_id"),
-            delete_files=delete_files
+    if api_key_id is None:
+        api_key_id = user.get("api_key_id")
+
+    row = await get_vector_store_for_owner(
+        pg,
+        vector_store_id=vector_store_id,
+        api_key_id=api_key_id,
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vector store not found or you don't have permission to delete it."
         )
 
-        return result
+    collection_name = row["collection_name"]
+
+    try:
+        delete_chroma_collection(collection_name)
+
+        await soft_delete_vector_store_files(
+            pg,
+            vector_store_id=vector_store_id,
+        )
+
+        deleted_row = await soft_delete_vector_store(
+            pg,
+            vector_store_id=vector_store_id,
+            api_key_id=api_key_id,
+        )
+
+        if not deleted_row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Vector store not found or already deleted."
+            )
+
+        # فعلاً delete_files را اینجا انجام نمی‌دهیم، چون فایل‌ها از جدول files مدیریت می‌شوند.
+        # اگر خواستی در آینده delete_files=True واقعاً فایل‌ها را هم soft delete کند،
+        # باید با files service وصلش کنیم.
+
+        return VectorStoreDeletedResponse(
+            id=vector_store_id,
+            object="vector_store.deleted",
+            deleted=True,
+        )
 
     except HTTPException:
         raise
 
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to delete vector store: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail="Failed to delete vector store"
         )
-    
 
 
 @router.get(
     "/{vector_store_id}/files",
-    response_model=VectorStoreFileListResponse
+    response_model=VectorStoreFileListResponse,
 )
 async def list_files_in_vector_store(
     vector_store_id: str,
     user=Depends(get_current_user),
-    redis=Depends(get_redis)
+    pg=Depends(get_pg),
 ):
-    try:
-        result = await list_vector_store_files(redis, vector_store_id)
-        return result
+    api_key_id = user.get("id")
 
-    except HTTPException:
-        raise
+    if api_key_id is None:
+        api_key_id = user.get("api_key_id")
 
-    except Exception:
+    vs = await get_vector_store_for_owner(
+        pg,
+        vector_store_id=vector_store_id,
+        api_key_id=api_key_id,
+    )
+
+    if not vs:
         raise HTTPException(
-            status_code=500,
-            detail="Failed to list vector store files"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vector store not found or you don't have permission to access it."
         )
+
+    rows = await list_vector_store_files_by_owner(
+        pg,
+        vector_store_id=vector_store_id,
+        api_key_id=api_key_id,
+    )
+
+    items = [
+        {
+            "id": row["file_id"],
+            "object": "vector_store.file",
+            "created_at": row["created_at"],
+            "vector_store_id": row["vector_store_id"],
+        }
+        for row in rows
+    ]
+
+    return {
+        "object": "list",
+        "data": items,
+        "first_id": items[0]["id"] if items else None,
+        "last_id": items[-1]["id"] if items else None,
+        "has_more": False,
+    }

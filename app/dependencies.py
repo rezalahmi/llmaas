@@ -53,7 +53,15 @@ async def get_current_user(
     )
 
     # تبدیل رکورد دیتابیس به دیکشنری برای استفاده در بقیه سرویس‌ها
-    return dict(user_record)
+    return {
+    "id": user_record["id"],
+    "api_key_id": user_record["id"],
+    "external_user_id": user_record["external_user_id"],
+    "user_name": user_record["user_name"],
+    "quota": user_record["quota"],
+    "is_active": True,
+}
+
 
 async def verify_admin(x_admin_key: str = Header(None)):
     admin_secret = settings.ADMIN_SECRET

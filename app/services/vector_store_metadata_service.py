@@ -1,0 +1,229 @@
+import secrets
+from typing import Optional
+from fastapi import HTTPException
+
+
+def generate_vector_store_id() -> str:
+    return f"vs_{secrets.token_urlsafe(16)}"
+
+
+def generate_vector_store_file_id(vector_store_id: str, file_id: str) -> str:
+    return f"vsfile_{vector_store_id}_{file_id}"
+
+
+async def create_vector_store_record(
+    pg,
+    *,
+    vector_store_id: str,
+    external_user_id: Optional[int],
+    api_key_id: Optional[int],
+    name: Optional[str],
+    collection_name: str,
+):
+    return await pg.fetchrow(
+        """
+        INSERT INTO vector_stores (
+            id,
+            external_user_id,
+            api_key_id,
+            name,
+            collection_name,
+            storage_backend,
+            status
+        )
+        VALUES ($1, $2, $3, $4, $5, 'chroma', 'ready')
+        RETURNING
+            id,
+            external_user_id,
+            api_key_id,
+            name,
+            collection_name,
+            storage_backend,
+            status,
+            EXTRACT(EPOCH FROM created_at)::bigint AS created_at
+        """,
+        vector_store_id,
+        external_user_id,
+        api_key_id,
+        name,
+        collection_name,
+    )
+
+
+async def mark_vector_store_failed(pg, *, vector_store_id: str, error: str):
+    return await pg.execute(
+        """
+        UPDATE vector_stores
+        SET status = 'failed',
+            error = $2,
+            updated_at = now()
+        WHERE id = $1
+        """,
+        vector_store_id,
+        error,
+    )
+
+
+async def count_user_vector_stores(pg, *, api_key_id: Optional[int]):
+    return await pg.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM vector_stores
+        WHERE api_key_id = $1
+          AND deleted_at IS NULL
+          AND status != 'deleted'
+        """,
+        api_key_id,
+    )
+
+
+async def list_vector_stores_by_api_key(pg, *, api_key_id: Optional[int]):
+    return await pg.fetch(
+        """
+        SELECT
+            id,
+            name,
+            EXTRACT(EPOCH FROM created_at)::bigint AS created_at
+        FROM vector_stores
+        WHERE api_key_id = $1
+          AND deleted_at IS NULL
+          AND status != 'deleted'
+        ORDER BY created_at DESC
+        """,
+        api_key_id,
+    )
+
+
+async def get_vector_store_for_owner(
+    pg,
+    *,
+    vector_store_id: str,
+    api_key_id: Optional[int],
+):
+    return await pg.fetchrow(
+        """
+        SELECT
+            id,
+            external_user_id,
+            api_key_id,
+            name,
+            collection_name,
+            status,
+            EXTRACT(EPOCH FROM created_at)::bigint AS created_at
+        FROM vector_stores
+        WHERE id = $1
+          AND api_key_id = $2
+          AND deleted_at IS NULL
+          AND status != 'deleted'
+        """,
+        vector_store_id,
+        api_key_id,
+    )
+
+
+async def soft_delete_vector_store(
+    pg,
+    *,
+    vector_store_id: str,
+    api_key_id: Optional[int],
+):
+    return await pg.fetchrow(
+        """
+        UPDATE vector_stores
+        SET status = 'deleted',
+            deleted_at = now(),
+            updated_at = now()
+        WHERE id = $1
+          AND api_key_id = $2
+          AND deleted_at IS NULL
+        RETURNING id
+        """,
+        vector_store_id,
+        api_key_id,
+    )
+
+
+async def attach_file_to_vector_store(
+    pg,
+    *,
+    vector_store_id: str,
+    file_id: str,
+    external_user_id: Optional[int],
+    api_key_id: Optional[int],
+    status: str = "attached",
+):
+    vector_store_file_id = generate_vector_store_file_id(vector_store_id, file_id)
+
+    return await pg.fetchrow(
+        """
+        INSERT INTO vector_store_files (
+            id,
+            vector_store_id,
+            file_id,
+            external_user_id,
+            api_key_id,
+            status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (id) DO UPDATE
+        SET deleted_at = NULL,
+            status = EXCLUDED.status,
+            error = NULL,
+            updated_at = now()
+        RETURNING
+            id,
+            vector_store_id,
+            file_id,
+            status,
+            EXTRACT(EPOCH FROM created_at)::bigint AS created_at
+        """,
+        vector_store_file_id,
+        vector_store_id,
+        file_id,
+        external_user_id,
+        api_key_id,
+        status,
+    )
+
+
+async def list_vector_store_files_by_owner(
+    pg,
+    *,
+    vector_store_id: str,
+    api_key_id: Optional[int],
+):
+    return await pg.fetch(
+        """
+        SELECT
+            vsf.id,
+            vsf.file_id,
+            vsf.vector_store_id,
+            vsf.status,
+            EXTRACT(EPOCH FROM vsf.created_at)::bigint AS created_at
+        FROM vector_store_files vsf
+        JOIN vector_stores vs
+          ON vs.id = vsf.vector_store_id
+        WHERE vsf.vector_store_id = $1
+          AND vs.api_key_id = $2
+          AND vs.deleted_at IS NULL
+          AND vsf.deleted_at IS NULL
+          AND vsf.status != 'deleted'
+        ORDER BY vsf.created_at ASC
+        """,
+        vector_store_id,
+        api_key_id,
+    )
+
+
+async def soft_delete_vector_store_files(pg, *, vector_store_id: str):
+    return await pg.execute(
+        """
+        UPDATE vector_store_files
+        SET status = 'deleted',
+            deleted_at = now(),
+            updated_at = now()
+        WHERE vector_store_id = $1
+          AND deleted_at IS NULL
+        """,
+        vector_store_id,
+    )

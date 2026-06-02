@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
+
+logger = logging.getLogger(__name__)
 
 async def create_file_uploading(
     pg,
@@ -13,7 +16,7 @@ async def create_file_uploading(
 ):
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=expires_seconds)
-
+    
     await pg.execute(
         """
         insert into files (

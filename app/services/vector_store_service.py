@@ -9,6 +9,17 @@ chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
 )
 
+
+def create_chroma_collection(collection_name: str):
+    return chroma_client.get_or_create_collection(name=collection_name)
+
+
+def delete_chroma_collection(collection_name: str):
+    try:
+        chroma_client.delete_collection(name=collection_name)
+    except Exception:
+        pass
+
 def generate_vector_store_id():
     return f"vs_{secrets.token_urlsafe(16)}"
 
