@@ -1,4 +1,5 @@
 import os
+import hashlib
 import secrets
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -59,32 +60,32 @@ def save_file(file_bytes: bytes, filename: str, expires_seconds: int = 2592000):
     return metadata
 
 
-async def save_file_stream(upload_file, expires_seconds=2592000):
+async def save_file_stream(upload_file, file_id: str, expires_seconds=2592000):
+    ext = validate_extension(upload_file.filename)
 
-    validate_extension(upload_file.filename)
-
-    file_id = generate_file_id()
-
-    ext = os.path.splitext(upload_file.filename)[1].lower()
-
+    suffix = os.path.splitext(upload_file.filename)[1].lower()
     os.makedirs(STORAGE_PATH, exist_ok=True)
 
-    file_path = os.path.join(STORAGE_PATH, f"{file_id}{ext}")
+    file_path = os.path.join(STORAGE_PATH, f"{file_id}{suffix}")
+    storage_key = f"files/{file_id}{suffix}"
 
     size = 0
+    sha256 = hashlib.sha256()
 
     with open(file_path, "wb") as f:
-
         while chunk := await upload_file.read(1024 * 1024):  # 1MB
             size += len(chunk)
-
+            sha256.update(chunk)
             f.write(chunk)
 
     metadata = {
         "id": file_id,
         "filename": upload_file.filename,
+        "ext": ext,
         "bytes": size,
         "path": str(file_path),
+        "storage_key": storage_key,
+        "sha256": sha256.hexdigest(),
         "created_at": int(datetime.utcnow().timestamp()),
         "expires_at": int((datetime.utcnow() + timedelta(seconds=expires_seconds)).timestamp())
     }

@@ -17,7 +17,9 @@ from app.auth import get_api_key
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(
+    tags=["Response"]
+)
 
 
 async def stream_response(r, request_id, citations=None):

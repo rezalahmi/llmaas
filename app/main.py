@@ -1,6 +1,6 @@
 # app\main.py
 from fastapi import FastAPI
-from app.redis_client import init_redis, close_redis
+from app.redis_client import get_redis_connection, close_redis
 from app.routers.chat_router import router as chat_router
 from app.routers.admin_router import router as admin_router
 from app.routers.files import router as file_router
@@ -14,7 +14,7 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup():
-    await init_redis()
+    await get_redis_connection()
     await connect_postgres()
 
 

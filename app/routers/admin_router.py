@@ -5,13 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.redis_client import get_redis
 from app.postgres_client import get_pg
-from app.schemas.admin import KeyCreate
+from app.schemas.admin import KeyCreate, KeyActiveUpdate
 from app.dependencies import verify_admin
 from app.security.api_keys import hash_api_key, api_key_prefix
 
 
 router = APIRouter(
     prefix="/admin",
+    tags=["Admin"],
     dependencies=[Depends(verify_admin)]
 )
 
@@ -152,3 +153,51 @@ async def delete_key_by_id(
         "key": dict(row),
     }
 
+
+
+@router.post("/keys/by-id/{key_id}/activate")
+async def activate_key_by_id(
+    key_id: int,
+    pg=Depends(get_pg),
+):
+    row = await pg.fetchrow(
+        """
+        update api_keys
+        set is_active = true
+        where id = $1
+        returning id, key_prefix, is_active
+        """,
+        key_id,
+    )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    return {
+        "status": "activated",
+        "key": dict(row),
+    }
+
+
+
+@router.patch("/keys/by-id/{key_id}")
+async def set_key_active_by_id(
+    key_id: int,
+    data: KeyActiveUpdate,
+    pg=Depends(get_pg),
+):
+    row = await pg.fetchrow(
+        """
+        update api_keys
+        set is_active = $2
+        where id = $1
+        returning id, key_prefix, is_active
+        """,
+        key_id,
+        data.is_active,
+    )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    return {"status": "updated", "key": dict(row)}

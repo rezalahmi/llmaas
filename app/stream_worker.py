@@ -63,7 +63,12 @@ async def run():
 
     while True:
         # دریافت داده از صف Redis
-        _, raw = await r.brpop("stream_queue")
+        result = await r.brpop("stream_queue", timeout=30)
+        if result is None:
+            continue
+
+        _, raw = result
+
         if not raw:
             continue
 

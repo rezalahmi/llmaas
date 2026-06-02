@@ -1,131 +1,114 @@
-# app\routers\files.py
+# app/routers/files.py
 import logging
-import time
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
+
 from app.schemas.files import FileUploadResponse, FileListResponse
 from app.dependencies import get_current_user
-from app.services.file_service import save_file_stream
-from app.redis_client import get_redis
+from app.postgres_client import get_pg
+
+from app.services.file_service import save_file_stream, generate_file_id
+from app.services.file_metadata_service import (
+    create_file_uploading,
+    mark_file_ready,
+    mark_file_failed,
+    list_files_by_user,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/files", tags=["Files"])
+
 
 @router.post("/", response_model=FileUploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
     user=Depends(get_current_user),
-    r = Depends(get_redis)
+    pg=Depends(get_pg),
 ):
-    user_id = user.get("user_id")
-    file_meta = None
     
-    # ۱. اعتبارسنجی اولیه فایل
+    external_user_id = user.get("external_user_id")
+    api_key_id = user.get("api_key_id")
+
+    logger.info(f"UPLOAD user payload: {user}")
+    logger.info(f"UPLOAD external_user_id={external_user_id}, api_key_id={api_key_id}")
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is missing")
 
+    file_id = generate_file_id()
+
     try:
-        # ۲. ذخیره فایل در دیسک یا S3
+        await create_file_uploading(
+            pg,
+            file_id=file_id,
+            external_user_id=external_user_id,
+            api_key_id=api_key_id,
+            filename=file.filename,
+            content_type=file.content_type,
+        )
+
         try:
-            file_meta = await save_file_stream(file)
+            file_meta = await save_file_stream(file, file_id=file_id)
         except Exception as e:
-            logger.error(f"Disk I/O Error during file upload: {str(e)}")
+            logger.error(f"Disk I/O Error during file upload: {str(e)}", exc_info=True)
+            await mark_file_failed(pg, file_id=file_id, error=str(e))
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Could not save file to storage."
             )
 
-        # ۳. ثبت در ردیس (با مدیریت خطا)
-        try:
-            file_id = file_meta["id"]
-            user_files_key = f"user_files:{user_id}"
-            file_detail_key = f"file:{file_id}"
-
-            # استفاده از Pipeline برای افزایش سرعت و پایداری (اختیاری اما توصیه شده)
-            async with r.pipeline(transaction=True) as pipe:
-                # افزودن آیدی فایل به لیست فایل‌های کاربر
-                await pipe.sadd(user_files_key, file_id)
-                
-                # ذخیره جزئیات فایل به صورت Hash
-                await pipe.hset(
-                    file_detail_key,
-                    mapping={
-                        "user_id": user_id,
-                        "filename": file_meta["filename"],
-                        "bytes": str(file_meta["bytes"]), # در هش بهتر است رشته ذخیره شود
-                        "path": file_meta["path"],
-                        "created_at": int(time.time())
-                    }
-                )
-                
-                # به‌روزرسانی حجم مصرفی کاربر
-                await pipe.incrby(f"user_storage:{user_id}", file_meta["bytes"])
-                
-                await pipe.execute()
-
-        except Exception as e:
-            logger.error(f"Redis Error for user {user_id}: {str(e)}")
-            # در اینجا بهتر است اگر ثبت در دیتابیس شکست خورد، فایل ذخیره شده را پاک کنیم
-            # os.remove(file_meta["path"]) 
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database error while registering file metadata."
-            )
+        await mark_file_ready(
+            pg,
+            file_id=file_id,
+            ext=file_meta["ext"],
+            bytes_=file_meta["bytes"],
+            storage_key=file_meta["storage_key"],
+            storage_path=file_meta["path"],
+            sha256=file_meta["sha256"],
+            storage_backend="disk",
+        )
 
         return FileUploadResponse(
-            file_id=file_meta["id"],
+            file_id=file_id,
             filename=file_meta["filename"],
             bytes=file_meta["bytes"]
         )
 
-    except HTTPException as he:
-        raise he
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error in upload_file: {str(e)}", exc_info=True)
+        try:
+            await mark_file_failed(pg, file_id=file_id, error=str(e))
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 
 @router.get("/", response_model=FileListResponse)
-async def list_user_files(user=Depends(get_current_user), r = Depends(get_redis)):
-    user_id = user.get("user_id")
-    user_files_key = f"user_files:{user_id}"
-    
+async def list_user_files(
+    user=Depends(get_current_user),
+    pg=Depends(get_pg),
+):
+    print(f"START DEBUG LIST USER FILES")
+    print(f"user data {user}")
+    user_id = user.get("external_user_id")
+
     try:
-        # ۱. دریافت آیدی تمام فایل‌های کاربر
-        file_ids = await r.smembers(user_files_key)
-        
-        files = []
-        for fid in file_ids:
-            # تبدیل بایت به رشته (ردیس معمولاً بایت برمی‌گرداند)
-            if isinstance(fid, bytes):
-                fid = fid.decode('utf-8')
+        rows = await list_files_by_user(pg, external_user_id=user_id)
 
-            # ۲. اصلاح روش خواندن: چون با hset ذخیره شده، باید با hgetall خوانده شود
-            meta = await r.hgetall(f"file:{fid}")
-            
-            if meta:
-                # تبدیل بایت‌های دیکشنری به رشته/عدد
-                if "filename" in meta:
-                    filename = meta.get("filename", "Unknown")
-                    bytes_size = int(meta.get("bytes", 0))
-                else:
-                    # اگر redis bytes برگرداند
-                    filename = meta.get(b"filename", b"Unknown").decode()
-                    bytes_size = int(meta.get(b"bytes", b"0"))
-
-                files.append({
-                    "file_id": fid,
-                    "filename": filename,
-                    "bytes": bytes_size
-                })
-            else:
-                # اگر آیدی در لیست بود ولی متادیتا نداشت (دیتای کثیف)
-                logger.warning(f"File metadata missing for ID: {fid}")
-                continue
+        files = [
+            {
+                "file_id": row["id"],
+                "filename": row["filename"],
+                "bytes": row["bytes"],
+            }
+            for row in rows
+        ]
 
         return FileListResponse(files=files)
 
     except Exception as e:
-        logger.error(f"Error listing files for user {user_id}: {str(e)}")
+        logger.error(f"Error listing files for user {user_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not retrieve file list from database."
