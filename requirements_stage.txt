@@ -1,0 +1,27 @@
+# Web & API
+fastapi
+uvicorn
+gunicorn
+python-multipart
+pydantic-settings
+httpx
+
+# Database & Task Queue
+redis
+celery
+chromadb
+asyncpg
+
+# Document Processing
+langchain-text-splitters
+PyMuPDF
+python-docx
+python-pptx
+pandas
+openpyxl
+beautifulsoup4
+pyyaml
+
+# Utilities
+python-dotenv
+tiktoken

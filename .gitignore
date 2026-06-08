@@ -9,3 +9,4 @@ dev.ps1
 dev.ps1
 storage/files/*.pdf
 storage/files/*.docx
+storage/files/*.txt

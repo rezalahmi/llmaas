@@ -173,3 +173,18 @@ async def list_vector_store_files(redis, vector_store_id: str):
         "last_id": items_sorted[-1]["id"] if items_sorted else None,
         "has_more": False
     }
+
+
+
+async def get_vector_stores_for_owner(pg, api_key_id: str, vector_store_ids: list[str]):
+    if not vector_store_ids:
+        return []
+
+    query = """
+        SELECT id
+        FROM vector_stores
+        WHERE api_key_id = $1
+          AND id = ANY($2::text[])
+          AND deleted_at IS NULL
+    """
+    return await pg.fetch(query, api_key_id, vector_store_ids)
