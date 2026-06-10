@@ -3,7 +3,9 @@ import secrets
 import time
 import chromadb
 import os
-from fastapi import HTTPException
+from fastapi import HTTPException, status
+
+from app.repositories.vector_store_repository import get_vector_store_by_id
 
 chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
@@ -188,3 +190,48 @@ async def get_vector_stores_for_owner(pg, api_key_id: str, vector_store_ids: lis
           AND deleted_at IS NULL
     """
     return await pg.fetch(query, api_key_id, vector_store_ids)
+
+
+
+
+
+def to_unix_timestamp(dt):
+    if dt is None:
+        return None
+    return int(dt.timestamp())
+
+
+async def retrieve_vector_store(
+    pg,
+    *,
+    vector_store_id: str,
+    api_key_id: int,
+):
+    row = await get_vector_store_by_id(
+        pg,
+        vector_store_id=vector_store_id,
+        api_key_id=api_key_id,
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vector store not found."
+        )
+
+    return {
+        "id": row["id"],
+        "object": "vector_store",
+        "name": row["name"],
+        "status": row["status"],
+        "created_at": to_unix_timestamp(row["created_at"]),
+        "usage_bytes": int(row["usage_bytes"] or 0),
+        "file_counts": {
+            "in_progress": int(row["in_progress_count"] or 0),
+            "completed": int(row["completed_count"] or 0),
+            "failed": int(row["failed_count"] or 0),
+            "cancelled": 0,
+            "total": int(row["total_count"] or 0),
+        },
+        "metadata": {},
+    }

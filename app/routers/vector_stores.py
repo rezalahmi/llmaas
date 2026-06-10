@@ -2,6 +2,9 @@ import logging
 import time
 from fastapi import APIRouter, Depends, HTTPException, status
 
+
+router = APIRouter(prefix="/vector_stores", tags=["Vector Stores"])
+
 from app.schemas.vector_stores import (
     VectorStoreCreate,
     VectorStoreResponse,
@@ -15,6 +18,7 @@ from app.postgres_client import get_pg
 from app.services.vector_store_service import (
     create_chroma_collection,
     delete_chroma_collection,
+    retrieve_vector_store
 )
 
 from app.services.vector_store_metadata_service import (
@@ -32,6 +36,23 @@ from app.services.vector_store_metadata_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/vector_stores", tags=["Vector Stores"])
+
+
+
+@router.get("/{vector_store_id}")
+async def get_vector_store(
+    vector_store_id: str,
+    user=Depends(get_current_user),
+    pg=Depends(get_pg),
+):
+    api_key_id = user.get("id")
+
+    return await retrieve_vector_store(
+        pg,
+        vector_store_id=vector_store_id,
+        api_key_id=api_key_id,
+    )
+
 
 
 @router.post("/", response_model=VectorStoreResponse)
