@@ -121,8 +121,9 @@ async def list_files_by_user(
         select id, filename, bytes
         from files
         where external_user_id = $1
-          and deleted_at is null
-          and status = 'ready'
+          AND deleted_at is null
+          AND (expires_at IS NULL OR expires_at > NOW())
+          AND status = 'ready'
         order by created_at desc
         """,
         external_user_id,
@@ -144,6 +145,7 @@ async def delete_file_record(pg, *, file_id: str, api_key_id: str):
         WHERE id = $1 
           AND api_key_id = $2
           AND deleted_at IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())
         """,
         file_id,
         api_key_id

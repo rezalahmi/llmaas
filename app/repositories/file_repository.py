@@ -31,6 +31,7 @@ async def get_file_for_download(
         WHERE id = $1
           AND external_user_id = $2
           AND deleted_at IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())
         LIMIT 1
     """
     return await pg.fetchrow(query, file_id, external_user_id)
