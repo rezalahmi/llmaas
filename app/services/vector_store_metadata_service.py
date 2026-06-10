@@ -264,3 +264,29 @@ async def upsert_vector_store_file(
         query, 
         new_id, vector_store_id, file_id, external_user_id, api_key_id, status, batch_id, error
     )
+
+
+async def get_vector_store_files_list(pg, vector_store_id: str, limit: int = 20, after: str = None):
+    # کوئری برای گرفتن لیست فایل‌ها به همراه اطلاعات تکمیلی
+    query = """
+        SELECT 
+            vsf.file_id, 
+            vsf.status, 
+            vsf.error as last_error, 
+            vsf.created_at, 
+            vsf.vector_store_id,
+            f.size as usage_bytes
+        FROM vector_store_files vsf
+        LEFT JOIN files f ON vsf.file_id = f.id
+        WHERE vsf.vector_store_id = $1 AND vsf.deleted_at IS NULL
+    """
+    params = [vector_store_id]
+    
+    if after:
+        query += " AND vsf.file_id > $2"
+        params.append(after)
+        
+    query += " ORDER BY vsf.file_id ASC LIMIT $3"
+    params.append(limit)
+    
+    return await pg.fetch(query, *params)

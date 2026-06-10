@@ -22,7 +22,8 @@ from app.services.vector_store_file_service import attach_file_to_vector_store, 
 from app.services.vector_store_metadata_service import (
     get_vector_store_for_owner,
     attach_file_to_vector_store as db_attach_file,
-    upsert_vector_store_file
+    upsert_vector_store_file,
+    get_vector_store_files_list
 )
 from app.services.file_metadata_service import get_file_metadata 
 from app.services.vector_store_batch_service import create_batch_record, update_batch_progress, get_batch_status
@@ -231,6 +232,65 @@ async def get_batch(
     if not status:
         raise HTTPException(status_code=404, detail="Batch not found")
     return status
+
+
+@router.get("/{vector_store_id}/files")
+async def list_vector_store_files(
+    vector_store_id: str,
+    limit: int = 20,
+    after: str = None,
+    user=Depends(get_current_user),
+    pool=Depends(get_pool)
+):
+    api_key_id = user.get("id")
+    
+    async with pool.acquire() as conn:
+        # ۱. بررسی دسترسی (هنوز در لایه سرویس است)
+        vs = await get_vector_store_for_owner(conn, vector_store_id, api_key_id)
+        if not vs:
+            raise HTTPException(status_code=404, detail="Vector store not found.")
+
+        # ۲. فراخوانی منطق از لایه سرویس
+        rows = await get_vector_store_files_list(conn, vector_store_id, limit, after)
+        
+        # ۳. فرمت‌دهی خروجی دقیقاً مشابه OpenAI
+        data = []
+        for row in rows:
+            status = "completed" if row["status"] == "ready" else row["status"]
+            
+            # مدیریت ساختار خطا مشابه OpenAI
+            last_error = None
+            if row["last_error"]:
+                last_error = {
+                    "code": "server_error",
+                    "message": row["last_error"]
+                }
+
+            data.append({
+                "id": row["file_id"], # OpenAI آی‌دی فایل را به عنوان ID رکورد برمی‌گرداند
+                "object": "vector_store.file",
+                "usage_bytes": row["usage_bytes"] or 0,
+                "created_at": int(row["created_at"].timestamp()),
+                "vector_store_id": row["vector_store_id"],
+                "status": status,
+                "last_error": last_error,
+                "chunking_strategy": {
+                    "type": "static",
+                    "static": {
+                        "max_chunk_size_tokens": 800, # مقادیر پیش‌فرض یا ذخیره شده
+                        "chunk_overlap_tokens": 400
+                    }
+                },
+                "attributes": {}
+            })
+            
+        return {
+            "object": "list",
+            "data": data,
+            "first_id": data[0]["id"] if data else None,
+            "last_id": data[-1]["id"] if data else None,
+            "has_more": len(data) == limit
+        }
 
 
 
