@@ -122,26 +122,29 @@ async def delete_file(
     user=Depends(get_current_user),
     pg=Depends(get_pg),
 ):
-    # گرفتن اطلاعات هویتی
     api_key_id = user.get("id")
-    external_user_id = user.get("external_user_id")
-    logger.info(f"DEBUG: Attempting to delete file {file_id} using api_key_id: {api_key_id}")
-    # تلاش برای حذف (بر اساس صاحب فایل)
-    # توجه: اینجا چک می‌کنیم که فایل حتماً متعلق به این API Key باشد
-    result = await delete_file_record(pg, file_id=file_id, api_key_id=api_key_id)
-    logger.info(f"DEBUG: Delete result count: {result}")
-    # اگر ردیفی تغییر نکرد، یعنی یا فایل وجود ندارد یا متعلق به این کاربر نیست
-    if result == "UPDATE 0":
-        logger.warning(f"Delete failed: File {file_id} not found or access denied for key {api_key_id}")
+
+    logger.info(f"Attempting to delete file {file_id} using api_key_id: {api_key_id}")
+
+    deleted = await delete_file_record(
+        pg,
+        file_id=file_id,
+        api_key_id=api_key_id
+    )
+
+    if not deleted:
+        logger.warning(
+            f"Delete failed: File {file_id} not found or access denied for key {api_key_id}"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found or you don't have permission to delete it."
+            detail="File not found or access denied."
         )
 
     logger.info(f"File {file_id} marked as deleted by key {api_key_id}")
-    
-    # چون status_code=204 است، بدنه برنمی‌گردانیم
+
     return None
+
 
 
 @router.get("/{file_id}", response_model=FileResponse)
@@ -159,7 +162,6 @@ async def retrieve_file(
     )
 
 
-#TODO     GET /files/{file_id}/content
 
 @router.get("/{file_id}/content")
 async def get_file_content_endpoint(
