@@ -296,4 +296,3 @@ async def list_vector_store_files(
 
 #TODO     POST /vector_stores/{vs_id}/file_batches/{batch_id}/cancel
 
-#TODO     GET /vector_stores/{vs_id}/files

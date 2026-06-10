@@ -3,6 +3,8 @@ import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta
+from fastapi import HTTPException, status
+from app.repositories.file_repository import get_file_by_id
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 STORAGE_PATH = BASE_DIR / "storage" / "files"
@@ -93,3 +95,20 @@ async def save_file_stream(upload_file, file_id: str, expires_seconds=2592000):
     }
 
     return metadata
+
+async def retrieve_user_file(pg, file_id: str, external_user_id: str):
+    row = await get_file_by_id(pg, file_id, external_user_id)
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found."
+        )
+
+    return {
+        "id": row["id"],
+        "object": "file",
+        "filename": row["filename"],
+        "bytes": row["bytes"],
+        "created_at": int(row["created_at"].timestamp()) if row["created_at"] else None,
+    }

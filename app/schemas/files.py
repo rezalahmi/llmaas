@@ -10,3 +10,11 @@ class FileUploadResponse(BaseModel):
 
 class FileListResponse(BaseModel):
     files: List[FileUploadResponse]
+
+
+class FileResponse(BaseModel):
+    id: str
+    object: str = "file"
+    filename: str
+    bytes: int
+    created_at: int | None
