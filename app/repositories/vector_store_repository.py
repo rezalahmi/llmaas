@@ -77,3 +77,30 @@ async def patch_vector_store(pg, *, vector_store_id: str, api_key_id: int, name:
         RETURNING id, name, status, created_at
     """
     return await pg.fetchrow(query, vector_store_id, api_key_id, name)
+
+async def get_vector_store_file(
+    pg,
+    *,
+    vector_store_id: str,
+    file_id: str,
+    api_key_id: int
+):
+    return await pg.fetchrow(
+        """
+        SELECT
+            vsf.vector_store_id,
+            vsf.file_id,
+            vsf.status,
+            vsf.error,
+            vsf.created_at
+        FROM vector_store_files vsf
+        JOIN files f ON f.id = vsf.file_id
+        WHERE vsf.vector_store_id = $1
+          AND vsf.file_id = $2
+          AND f.api_key_id = $3
+          AND vsf.deleted_at IS NULL
+        """,
+        vector_store_id,
+        file_id,
+        api_key_id
+    )

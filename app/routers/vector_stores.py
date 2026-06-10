@@ -20,7 +20,8 @@ from app.services.vector_store_service import (
     create_chroma_collection,
     delete_chroma_collection,
     retrieve_vector_store,
-    service_patch_vector_store
+    service_patch_vector_store, 
+    service_get_vector_store_file
 )
 
 from app.services.vector_store_metadata_service import (
@@ -302,3 +303,18 @@ async def patch_vector_store_endpoint(
     )
 
 
+@router.get("/{vector_store_id}/files/{file_id}")
+async def get_vector_store_file_endpoint(
+    vector_store_id: str,
+    file_id: str,
+    user=Depends(get_current_user),
+    pg=Depends(get_pg),
+):
+    api_key_id = user.get("id")
+
+    return await service_get_vector_store_file(
+        pg,
+        vector_store_id=vector_store_id,
+        file_id=file_id,
+        api_key_id=api_key_id
+    )

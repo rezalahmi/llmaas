@@ -5,7 +5,7 @@ import chromadb
 import os
 from fastapi import HTTPException, status
 
-from app.repositories.vector_store_repository import get_vector_store_by_id, patch_vector_store
+from app.repositories.vector_store_repository import get_vector_store_by_id, patch_vector_store, get_vector_store_file
 
 chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
@@ -267,4 +267,32 @@ async def service_patch_vector_store(pg, *, vector_store_id: str, api_key_id: in
         "name": row["name"],
         "status": row["status"],
         "created_at": int(row["created_at"].timestamp())
+    }
+
+
+
+async def service_get_vector_store_file(pg, *, vector_store_id: str, file_id: str, api_key_id: int):
+    row = await get_vector_store_file(
+        pg,
+        vector_store_id=vector_store_id,
+        file_id=file_id,
+        api_key_id=api_key_id
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vector store file not found."
+        )
+
+    return {
+        "id": row["file_id"],
+        "object": "vector_store.file",
+        "vector_store_id": row["vector_store_id"],
+        "status": row["status"],
+        "created_at": int(row["created_at"].timestamp()),
+        "last_error": row["error"],
+        "usage_bytes": None,   # فعلاً نداری
+        "chunking_strategy": {},
+        "attributes": {},
     }
