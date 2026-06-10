@@ -1,7 +1,8 @@
 # app\routers\vector_store_files.py
 import logging
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 
 from app.schemas.vector_store_files import (
     VectorStoreFileCreate,
@@ -20,10 +21,11 @@ from app.postgres_client import get_pool
 from app.services.vector_store_file_service import attach_file_to_vector_store, detach_file_from_vector_store_pg
 from app.services.vector_store_metadata_service import (
     get_vector_store_for_owner,
-    attach_file_to_vector_store as db_attach_file
+    attach_file_to_vector_store as db_attach_file,
+    upsert_vector_store_file
 )
 from app.services.file_metadata_service import get_file_metadata 
-
+from app.services.vector_store_batch_service import create_batch_record, update_batch_progress, get_batch_status
 from app.dependencies import get_current_user
 from app.postgres_client import get_pg
 
@@ -97,54 +99,87 @@ async def attach_file(
 async def create_file_batch(
     vector_store_id: str,
     payload: VectorStoreFileBatchCreate,
+    background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
     pool=Depends(get_pool),
 ):
     api_key_id = user.get("id")
+    external_user_id = user.get("external_user_id")
 
-    # بررسی اولیه با یک کانکشن که از Pool می‌گیرید
+    # ۱. کارهای مقدماتی و ایجاد رکورد Batch
     async with pool.acquire() as conn:
         vs = await get_vector_store_for_owner(conn, vector_store_id=vector_store_id, api_key_id=api_key_id)
         if not vs:
             raise HTTPException(status_code=404, detail="Vector store not found.")
+        
+        # ساخت رکورد Batch در دیتابیس در همین مرحله
+        batch_id = await create_batch_record(conn, vector_store_id, api_key_id, len(payload.file_ids))
 
-    sem = asyncio.Semaphore(2)
+    # ۲. تعریف تابع Ingestion (بهتر است خارج از روت باشد، اما اینجا برای دسترسی راحت اصلاحش می‌کنیم)
+    # توجه: تمام متغیرهای مورد نیاز را صراحتاً به تابع پاس می‌دهیم
+    async def run_batch_ingestion_task(
+        target_pool, 
+        vs_id: str, 
+        b_id: str, 
+        f_ids: list, 
+        chunk_cfg, 
+        u_id: int, 
+        k_id: int
+    ):
+        sem = asyncio.Semaphore(2) # محدودیت برای جلوگیری از Overload
 
-    async def process_file(file_id: str):
-        async with sem:
-            # هر تسک، کانکشنِ اختصاصی خودش را از Pool می‌گیرد
-            async with pool.acquire() as conn:
-                try:
-                    file_record = await get_file_metadata(conn, file_id)
-                    if not file_record:
-                        return {"file_id": file_id, "status": "failed", "error": "File not found"}
-                    
-                    if file_record.get("api_key_id") != api_key_id:
-                        return {"file_id": file_id, "status": "failed", "error": "Access denied"}
+        async def process_single(file_id):
+            async with sem:
+                # برای هر فایل یک کانکشن تازه از استخر می‌گیریم
+                async with target_pool.acquire() as conn:
+                    try:
+                        file_record = await get_file_metadata(conn, file_id)
+                        if not file_record:
+                            raise Exception(f"File {file_id} not found")
 
-                    # پردازش اصلی
-                    data = await attach_file_to_vector_store(
-                        pg=conn,  # کانکشن اختصاصی این تسک
-                        vector_store_id=vector_store_id,
-                        file_id=file_id,
-                        file_record=file_record,
-                        chunk_size=payload.chunking.chunk_size,
-                        chunk_overlap=payload.chunking.chunk_overlap
-                    )
-                    return {"file_id": file_id, "status": "completed", "result": data}
-                
-                except Exception as e:
-                    logger.error(f"Batch ingestion failed for {file_id}: {e}", exc_info=True)
-                    return {"file_id": file_id, "status": "failed", "error": str(e)}
+                        await attach_file_to_vector_store(
+                            pg=conn,
+                            vector_store_id=vs_id,
+                            file_id=file_id,
+                            file_record=file_record,
+                            chunk_size=chunk_cfg.chunk_size,
+                            chunk_overlap=chunk_cfg.chunk_overlap,
+                            batch_id=b_id
+                        )
+                        await update_batch_progress(conn, b_id, success=True)
+                    except Exception as e:
+                        logger.error(f"Batch processing error for file {file_id}: {str(e)}")
+                        # ثبت وضعیت شکست برای فایل
+                        await upsert_vector_store_file(
+                            conn, vs_id, file_id, u_id, k_id, 
+                            status="failed", batch_id=b_id, error=str(e)
+                        )
+                        await update_batch_progress(conn, b_id, success=False)
 
-    tasks = [process_file(fid) for fid in payload.file_ids]
-    results = await asyncio.gather(*tasks)
+        tasks = [process_single(fid) for fid in f_ids]
+        await asyncio.gather(*tasks)
 
+    # ۳. سپردن به Background Task
+    background_tasks.add_task(
+        run_batch_ingestion_task,
+        pool,
+        vector_store_id,
+        batch_id,
+        payload.file_ids,
+        payload.chunking,
+        external_user_id,
+        api_key_id
+    )
+
+    # ۴. پاسخ فوری به کاربر
     return {
+        "id": batch_id,
+        "object": "vector_store.file_batch",
         "vector_store_id": vector_store_id,
-        "status": "completed",
-        "file_results": results
+        "status": "in_progress",
+        "created_at": int(datetime.now(timezone.utc).timestamp())
     }
+
 
 
 
@@ -184,3 +219,21 @@ async def detach_file(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not detach file"
         )
+    
+@router.get("/{vector_store_id}/file_batches/{batch_id}")
+async def get_batch(
+    vector_store_id: str,
+    batch_id: str,
+    user=Depends(get_current_user),
+    pg=Depends(get_pg)
+):
+    status = await get_batch_status(pg, batch_id, user.get("id"))
+    if not status:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return status
+
+
+
+#TODO     POST /vector_stores/{vs_id}/file_batches/{batch_id}/cancel
+
+#TODO     GET /vector_stores/{vs_id}/files

@@ -142,3 +142,9 @@ async def delete_file(
     
     # چون status_code=204 است، بدنه برنمی‌گردانیم
     return None
+
+
+#TODO:     GET /files/{file_id}
+
+#TODO     GET /files/{file_id}/content
+

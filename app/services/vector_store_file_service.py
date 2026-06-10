@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.services.embedding_service import embed_texts
 from app.services.Extractors.master_extractor import EXTRACTORS
-from app.services.vector_store_metadata_service import attach_file_to_vector_store as db_mark_ready
+from app.services.vector_store_metadata_service import upsert_vector_store_file
 
 chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
@@ -17,7 +17,8 @@ async def attach_file_to_vector_store(
     file_id: str,
     file_record: dict,
     chunk_size: int,
-    chunk_overlap: int
+    chunk_overlap: int,
+    batch_id: str
 ):
     # مسیر فایل از رکورد Postgres خوانده می‌شود
     # فرض می‌کنیم در Postgres ستون storage_path داریم: storage/files/file_id.pdf
@@ -93,13 +94,15 @@ async def attach_file_to_vector_store(
 
     # ۵. آپدیت وضعیت در Postgres به ready
     # از همان تابعی که در فایل قبلی نوشتیم با وضعیت 'ready' استفاده می‌کنیم
-    db_row = await db_mark_ready(
+    db_row = await upsert_vector_store_file(
         pg,
         vector_store_id=vector_store_id,
         file_id=file_id,
         external_user_id=file_record["external_user_id"],
         api_key_id=file_record["api_key_id"],
-        status="ready"
+        status="ready",
+        batch_id=batch_id,
+        error=None
     )
 
     return {
@@ -107,10 +110,9 @@ async def attach_file_to_vector_store(
         "object": "vector_store.file",
         "vector_store_id": vector_store_id,
         "file_id": file_id,
-        "created_at": db_row["created_at"],
+        "created_at": int(db_row["created_at"].timestamp()),
         "status": "ready"
     }
-
 
 async def detach_file_from_vector_store_pg(
     pg,

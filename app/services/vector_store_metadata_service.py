@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from typing import Optional
 from fastapi import HTTPException
 
@@ -226,4 +227,40 @@ async def soft_delete_vector_store_files(pg, *, vector_store_id: str):
           AND deleted_at IS NULL
         """,
         vector_store_id,
+    )
+
+
+async def upsert_vector_store_file(
+    pg, 
+    vector_store_id: str, 
+    file_id: str, 
+    external_user_id: int, 
+    api_key_id: int, 
+    status: str,
+    batch_id: str = None,
+    error: str = None
+):
+    """
+    ثبت یا به‌روزرسانی وضعیت فایل در یک وکتور استور.
+    اگر فایل قبلاً اتچ شده باشد، وضعیت آن آپدیت می‌شود (مثلاً از processing به ready).
+    """
+    # ساخت آی‌دی جدید فقط برای رکوردهای جدید
+    new_id = f"vsf_{uuid.uuid4().hex[:20]}"
+    
+    query = """
+        INSERT INTO vector_store_files (
+            id, vector_store_id, file_id, external_user_id, api_key_id, status, batch_id, error, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        ON CONFLICT (vector_store_id, file_id) WHERE deleted_at IS NULL
+        DO UPDATE SET 
+            status = EXCLUDED.status,
+            batch_id = COALESCE(EXCLUDED.batch_id, vector_store_files.batch_id),
+            error = EXCLUDED.error,
+            updated_at = NOW()
+        RETURNING id, created_at;
+    """
+    return await pg.fetchrow(
+        query, 
+        new_id, vector_store_id, file_id, external_user_id, api_key_id, status, batch_id, error
     )

@@ -257,3 +257,9 @@ async def list_files_in_vector_store(
         "last_id": items[-1]["id"] if items else None,
         "has_more": False,
     }
+
+
+
+#TODO     GET /vector_stores/{vs_id}
+
+#TODO     POST /vector_stores/{vs_id}  # یا PATCH

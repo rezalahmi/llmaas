@@ -17,6 +17,11 @@ class VectorStoreFileBatchFileResult(BaseModel):
     result: Optional[Dict[str, Any]] = None 
 
 class VectorStoreFileBatchResponse(BaseModel):
+    id: str
+    object: str = "vector_store.file_batch"
     vector_store_id: str
     status: str = "completed"
-    file_results: List[VectorStoreFileBatchFileResult]
+    created_at: int
+
+
+
