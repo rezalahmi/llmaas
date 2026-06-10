@@ -4,7 +4,10 @@ import os
 import secrets
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status
-from app.repositories.file_repository import get_file_by_id
+from app.repositories.file_repository import get_file_by_id, get_file_for_download
+from fastapi.responses import FileResponse
+
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 STORAGE_PATH = BASE_DIR / "storage" / "files"
@@ -112,3 +115,76 @@ async def retrieve_user_file(pg, file_id: str, external_user_id: str):
         "bytes": row["bytes"],
         "created_at": int(row["created_at"].timestamp()) if row["created_at"] else None,
     }
+
+
+
+
+async def get_file_content(
+    pg,
+    *,
+    file_id: str,
+    external_user_id: int,
+):
+    row = await get_file_for_download(
+        pg,
+        file_id=file_id,
+        external_user_id=external_user_id,
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found."
+        )
+
+    # ✅ وضعیت فایل
+    if row["status"] != "ready":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"File is not ready for download (status={row['status']})."
+        )
+
+    # ✅ بررسی expiration
+    if row["expires_at"]:
+        from datetime import datetime, timezone
+        if row["expires_at"] < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="File has expired."
+            )
+
+    backend = row["storage_backend"]
+
+    # =======================
+    # DISK STORAGE
+    # =======================
+    if backend == "disk":
+        file_path = row["storage_path"]
+
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File content not found on disk."
+            )
+
+        return FileResponse(
+            path=file_path,
+            filename=row["filename"],
+            media_type=row["content_type"] or "application/octet-stream",
+        )
+
+    # =======================
+    # S3 STORAGE (برای آینده)
+    # =======================
+    elif backend == "s3":
+        # اینجا بعداً می‌تونی presigned URL بسازی
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="S3 backend not implemented yet."
+        )
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unknown storage backend."
+        )

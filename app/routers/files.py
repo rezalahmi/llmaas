@@ -6,7 +6,7 @@ from app.schemas.files import FileUploadResponse, FileListResponse, FileResponse
 from app.dependencies import get_current_user
 from app.postgres_client import get_pg
 
-from app.services.file_service import save_file_stream, generate_file_id, retrieve_user_file
+from app.services.file_service import save_file_stream, generate_file_id, retrieve_user_file, get_file_content
 from app.services.file_metadata_service import (
     create_file_uploading,
     mark_file_ready,
@@ -161,3 +161,16 @@ async def retrieve_file(
 
 #TODO     GET /files/{file_id}/content
 
+@router.get("/{file_id}/content")
+async def get_file_content_endpoint(
+    file_id: str,
+    user=Depends(get_current_user),
+    pg=Depends(get_pg),
+):
+    external_user_id = user.get("external_user_id")
+
+    return await get_file_content(
+        pg,
+        file_id=file_id,
+        external_user_id=external_user_id,
+    )
