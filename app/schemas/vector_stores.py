@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -32,3 +32,13 @@ class VectorStoreFileListResponse(BaseModel):
     first_id: Optional[str]
     last_id: Optional[str]
     has_more: bool
+
+class VectorStorePatchRequest(BaseModel):
+    name: str | None = Field(None, max_length=255)
+
+    @field_validator('name')
+    @classmethod
+    def name_must_not_be_empty(cls, v):
+        if v is not None and not v.strip():
+            raise ValueError('name cannot be empty or just whitespace')
+        return v.strip() if v else v

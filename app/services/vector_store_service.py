@@ -5,7 +5,7 @@ import chromadb
 import os
 from fastapi import HTTPException, status
 
-from app.repositories.vector_store_repository import get_vector_store_by_id
+from app.repositories.vector_store_repository import get_vector_store_by_id, patch_vector_store
 
 chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
@@ -234,4 +234,37 @@ async def retrieve_vector_store(
             "total": int(row["total_count"] or 0),
         },
         "metadata": {},
+    }
+
+
+
+async def service_patch_vector_store(pg, *, vector_store_id: str, api_key_id: int, update_data: dict):
+    # اگر در آینده فیلدهای بیشتری اضافه شد، اینجا داینامیک هندل می‌شود
+    name = update_data.get("name")
+    
+    if name is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid fields provided for update."
+        )
+
+    row = await patch_vector_store(
+        pg, 
+        vector_store_id=vector_store_id, 
+        api_key_id=api_key_id, 
+        name=name
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vector store not found or access denied."
+        )
+
+    return {
+        "id": row["id"],
+        "object": "vector_store",
+        "name": row["name"],
+        "status": row["status"],
+        "created_at": int(row["created_at"].timestamp())
     }

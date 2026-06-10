@@ -63,3 +63,17 @@ async def get_vector_store_by_id(pg, *, vector_store_id: str, api_key_id: int):
         vector_store_id,
         api_key_id
     )
+
+
+async def patch_vector_store(pg, *, vector_store_id: str, api_key_id: int, name: str):
+    query = """
+        UPDATE vector_stores
+        SET 
+            name = $3,
+            updated_at = NOW()
+        WHERE id = $1 
+          AND api_key_id = $2 
+          AND deleted_at IS NULL
+        RETURNING id, name, status, created_at
+    """
+    return await pg.fetchrow(query, vector_store_id, api_key_id, name)

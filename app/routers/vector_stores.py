@@ -10,6 +10,7 @@ from app.schemas.vector_stores import (
     VectorStoreResponse,
     VectorStoreDeletedResponse,
     VectorStoreFileListResponse,
+    VectorStorePatchRequest
 )
 
 from app.dependencies import get_current_user
@@ -18,7 +19,8 @@ from app.postgres_client import get_pg
 from app.services.vector_store_service import (
     create_chroma_collection,
     delete_chroma_collection,
-    retrieve_vector_store
+    retrieve_vector_store,
+    service_patch_vector_store
 )
 
 from app.services.vector_store_metadata_service import (
@@ -280,7 +282,23 @@ async def list_files_in_vector_store(
     }
 
 
+@router.patch("/{vector_store_id}")
+async def patch_vector_store_endpoint(
+    vector_store_id: str,
+    body: VectorStorePatchRequest,
+    user=Depends(get_current_user),
+    pg=Depends(get_pg)
+):
+    api_key_id = user.get("id")
+    
+    # فقط فیلدهایی که در JSON ارسالی موجود بودند را استخراج کن
+    update_data = body.model_dump(exclude_unset=True)
+    
+    return await service_patch_vector_store(
+        pg,
+        vector_store_id=vector_store_id,
+        api_key_id=api_key_id,
+        update_data=update_data
+    )
 
-#TODO     GET /vector_stores/{vs_id}
 
-#TODO     POST /vector_stores/{vs_id}  # یا PATCH
