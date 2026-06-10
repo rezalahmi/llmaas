@@ -1,3 +1,4 @@
+# docker-compose.yml
 version: "3.9"
 
 services:
@@ -101,6 +102,28 @@ services:
       OLLAMA_URL: http://host.docker.internal:11434/api/generate
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  usage_sync:
+    profiles:
+      - jobs
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile.stage
+    command:
+      - python
+      - -m
+      - app.jobs.sync_usage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: DEBUG
+      USAGE_SYNC_BATCH_SIZE: "500"
+    restart: "no"
 
 volumes:
   redis_data:

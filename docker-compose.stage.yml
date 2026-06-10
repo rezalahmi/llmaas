@@ -1,3 +1,4 @@
+# docker-compose.stage.yml
 services:
   nginx:
     container_name: llm_stage_nginx

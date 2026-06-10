@@ -6,14 +6,14 @@ FROM  python:3.12-slim
 WORKDIR /app
 
 
-# تنظیم PyPI mirror لیارا
-ENV PIP_INDEX_URL=https://package-mirror.liara.ir/repository/pypi/simple
-ENV PIP_TRUSTED_HOST=package-mirror.liara.ir
+# # تنظیم PyPI mirror لیارا
+# ENV PIP_INDEX_URL=https://package-mirror.liara.ir/repository/pypi/simple
+# ENV PIP_TRUSTED_HOST=package-mirror.liara.ir
 
-# جلوگیری از cache اضافی
-ENV PIP_NO_CACHE_DIR=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# # جلوگیری از cache اضافی
+# ENV PIP_NO_CACHE_DIR=1
+# ENV PYTHONDONTWRITEBYTECODE=1
+# ENV PYTHONUNBUFFERED=1
 
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel \

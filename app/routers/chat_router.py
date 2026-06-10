@@ -275,7 +275,7 @@ async def create_response(
                     try:
                         await r.ping()
                         print("[RAG STREAM] Redis connection OK")
-                    except Exception:
+                    except Exception as e:
                         logger.error(f"[RAG STREAM] Redis unavailable: {str(e)}")
                         raise HTTPException(status_code=503, detail="Messaging queue (Redis) is unavailable")
 
