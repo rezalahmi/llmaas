@@ -10,6 +10,7 @@ httpx
 redis
 celery
 chromadb
+asyncpg
 
 # Document Processing
 langchain-text-splitters
