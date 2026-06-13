@@ -11,9 +11,11 @@ from app.services.file_search import search_in_vector_store
 from app.utility.build_prompt import build_rag_prompt_from_file_search
 from app.utils import build_prompt, build_messages, convert_to_openai_format, fully_serialize
 from app.services.llm_service import LLMService
+from app.services.quota_service import consume_api_key_quota_service
 from app.redis_client import get_redis
 from app.token_counter import count_tokens
 from app.auth import get_api_key
+from app.postgres_client import get_pg
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ router = APIRouter(
 )
 
 
-async def stream_response(r, request_id, citations=None):
+async def stream_response(r, conn, key_id, request_id, citations=None):
 
     pubsub = r.pubsub()
     
@@ -69,6 +71,22 @@ async def stream_response(r, request_id, citations=None):
             if data.startswith("event: response.usage"):
                 
                 print("[STREAM] Usage event received")
+                try:
+                    # فرمت معمول: event: response.usage\ndata: {"total_tokens": 150, ...}
+                    json_str = data.split("data: ")[1]
+                    usage_data = json.loads(json_str)
+                    total_tokens = usage_data.get("total_tokens", 0)
+
+                    if total_tokens > 0:
+                        await consume_api_key_quota_service(
+                            conn,
+                            key_id=key_id,
+                            amount=total_tokens,
+                            reason="chat_stream",
+                            reference_id=f"stream_{request_id}"
+                        )
+                except Exception as e:
+                    logging.error(f"Failed to consume quota in stream: {e}")
                 
                 if citations:
                     
@@ -99,7 +117,8 @@ async def stream_response(r, request_id, citations=None):
 async def create_response(
         req: ResponseRequest,
         user=Depends(get_api_key),
-        r=Depends(get_redis)
+        r=Depends(get_redis),
+        conn=Depends(get_pg)
 ):
     try:
 
@@ -123,11 +142,15 @@ async def create_response(
         # ✅ STAGE 2 — tool results received
         # =========================================================
         if tool_messages_present:
-
+            
+            # 1) Build messages
             messages = build_messages(req)
             
             serializable_messages = fully_serialize(messages)
             logger.debug(f"DEBUG: STAGE 2-------\n{serializable_messages}")
+            # 2) Count input tokens (برای پیام‌ها)
+            input_tokens = count_tokens(json.dumps(serializable_messages, ensure_ascii=False))
+            # 3) Call LLM (non-stream always)
             payload = {
                 "model": req.model,
                 "messages": serializable_messages,
@@ -146,7 +169,47 @@ async def create_response(
                     error_msg = result.get("error", "Unknown LLM Error") if result else "LLM Service Unreachable"
                     logger.error(f"LLM Provider Error: {error_msg}")
                     raise HTTPException(status_code=502, detail=f"LLM Provider Error: {error_msg}")
-            return convert_to_openai_format(result)
+            # 4) Extract output text
+            output_text = ""
+            try:
+                msg = result.get("message", {})
+                content = msg.get("content", [])
+                if isinstance(content, list) and len(content) > 0:
+                    output_text = content[0].get("text", "") or ""
+                elif isinstance(content, str):
+                    output_text = content
+            except Exception:
+                output_text = ""
+            # 5) Count output tokens
+            output_tokens = count_tokens(output_text)
+
+            # 6) Total tokens
+            total_tokens = input_tokens + output_tokens
+             # 7) Consume quota  (اصلی‌ترین بخش)
+            try:
+                await consume_api_key_quota_service(
+                    conn,
+                    key_id=user["key_id"],
+                    amount=total_tokens,
+                    reason="tool_call_final",
+                    reference_id=f"tc_final_{uuid.uuid4().hex}"
+                )
+            except HTTPException as e:
+                # اگر quota کافی نبود، بهتر است پیام مدل را هم ندهیم
+                if e.status_code == 402:
+                    raise HTTPException(status_code=402, detail="Insufficient quota for tool completion")
+                raise
+             # 8) Build OpenAI-compatible response
+            formatted = convert_to_openai_format(result)
+
+            # 9) اضافه کردن usage واقعی
+            formatted["usage"] = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens
+            }
+
+            return formatted
 
 
         # =========================================================
@@ -221,6 +284,7 @@ async def create_response(
                     }
 
                     result = await llm.generate(payload)
+
                     if not result or "error" in result:
                         logger.error("LLM Generation failed after RAG retrieval")
                         raise HTTPException(
@@ -229,6 +293,16 @@ async def create_response(
                         )
                     output = result.get("response", "") if isinstance(result, dict) else str(result)
                     output_tokens = count_tokens(output)
+                    total_tokens = input_tokens + output_tokens
+
+                    # ✅ debit quota
+                    await consume_api_key_quota_service(
+                        conn,
+                        key_id=user["key_id"],
+                        amount=total_tokens,
+                        reason="rag_completion",
+                        reference_id=f"rag_{uuid.uuid4().hex}"
+                    )
                     # خروجی نهایی استاندارد OpenAI
                     return JSONResponse({
                         "id": f"resp_{uuid.uuid4().hex}",
@@ -238,7 +312,7 @@ async def create_response(
                         "usage": {
                             "input_tokens": input_tokens,
                             "output_tokens": output_tokens,
-                            "total_tokens": input_tokens + output_tokens,
+                            "total_tokens": total_tokens,
                         },
                         "output": [{
                             "id": f"msg_{uuid.uuid4().hex}",
@@ -289,7 +363,7 @@ async def create_response(
                     print("[RAG STREAM] enqueue_stream DONE")
                     # StreamingResponse که هم متن و هم citation را برمی‌گرداند
                     return StreamingResponse(
-                        stream_response(r, request_id, sources),
+                        stream_response(r, conn, user["key_id"], request_id, sources),
                         media_type="text/event-stream",
                         headers={
                             "Cache-Control": "no-cache",
@@ -383,7 +457,15 @@ async def create_response(
             
             output = result.get("response", "") if isinstance(result, dict) else str(result)
             output_tokens = count_tokens(output)
-
+            total_tokens = input_tokens + output_tokens
+             # ✅ debit quota اضافه شد
+            await consume_api_key_quota_service(
+                conn,
+                key_id=user["key_id"],
+                amount=total_tokens,
+                reason="chat_completion",
+                reference_id=f"resp_{uuid.uuid4().hex}"
+            )
             return JSONResponse({
                 "id": f"resp_{uuid.uuid4().hex}",
                 "object": "response",
@@ -392,7 +474,7 @@ async def create_response(
                 "usage": {
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
-                    "total_tokens": input_tokens + output_tokens
+                    "total_tokens": total_tokens
                 },
                 "output": [{
                     "id": f"msg_{uuid.uuid4().hex}",
@@ -439,7 +521,7 @@ async def create_response(
         )
 
         return StreamingResponse(
-            stream_response(r, request_id),
+            stream_response(r=r, conn=conn, key_id=user["key_id"],request_id= request_id),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
