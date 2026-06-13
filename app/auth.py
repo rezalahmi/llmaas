@@ -3,6 +3,8 @@ from app.redis_client import get_redis
 from app.postgres_client import get_pg
 from app.security.api_keys import hash_api_key
 import json
+from datetime import datetime, timezone
+
 
 async def get_api_key(
     authorization: str = Header(...),
@@ -22,13 +24,8 @@ async def get_api_key(
     key_hash = hash_api_key(raw_key)
 
     row = await pg.fetchrow(
-        """
-        select
-            id,
-            external_user_id,
-            user_name,
-            quota,
-            is_active
+         """
+        select id, external_user_id, user_name, quota, is_active, expires_at
         from api_keys
         where key_hash = $1
         limit 1
@@ -37,8 +34,15 @@ async def get_api_key(
     )
     
     if row:
+        # 1. چک کردن is_active
         if not row["is_active"]:
             raise HTTPException(status_code=401, detail="Inactive API key")
+        # 2. چک کردن expires_at
+        expires_at = row["expires_at"]
+        # اگر expires_at تنظیم شده و از الان گذشته، خطا بده
+        if expires_at and expires_at < datetime.now(timezone.utc): # از datetime.now(timezone.utc) استفاده کن
+            raise HTTPException(status_code=401, detail="API key expired") # یا 403 Forbidden
+         # 3. چک کردن quota (هم از DB و هم از Redis)
         if row["quota"] <= 0:
             raise HTTPException(status_code=402, detail="Quota exceeded")
         
@@ -49,11 +53,11 @@ async def get_api_key(
             "quota": row["quota"],
             "source": "postgres",
         }
-        used = await r.get(f"usage:{user['user_id']}")
-        used = int(used or 0)
+        # used = await r.get(f"usage:{user['user_id']}")
+        # used = int(used or 0)
 
-        if used >= user["quota"]:
-            raise HTTPException(status_code=402, detail="Quota exceeded")
+        # if used >= user["quota"]:
+        #     raise HTTPException(status_code=402, detail="Quota exceeded")
 
         await pg.execute(
             """

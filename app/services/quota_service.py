@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+import asyncpg 
 
 from app.repositories.quota_repository import (
     credit_key_quota,
@@ -15,6 +16,7 @@ async def credit_api_key_service(
     amount: int,
     reason: str | None = None,
     reference_id: str | None = None,
+    days_to_add: int | None = 30, # اضافه کردن این پارامتر برای کنترل تاریخ انقضا
 ):
     if amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be greater than zero")
@@ -26,14 +28,22 @@ async def credit_api_key_service(
             amount=amount,
             reason=reason,
             reference_id=reference_id,
+            days_to_add=days_to_add, # ارسال به متد زیرین
         )
-    except Exception:
-        # اگر بعداً خواستی duplicate reference_id را هندل کنی،
-        # اینجا می‌توانی روی UniqueViolationError شرط بگذاری.
-        raise
+        
+    except asyncpg.UniqueViolationError:
+        # مدیریت خطای تکراری بودن reference_id (Idempotency)
+        raise HTTPException(
+            status_code=409, 
+            detail="Transaction with this reference_id already processed"
+        )
+    except Exception as e:
+        # لاگ کردن خطا در صورت نیاز
+        print(f"Error crediting API key: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     if not result:
-        raise HTTPException(status_code=404, detail="active api key not found")
+        raise HTTPException(status_code=404, detail="Active API key not found")
 
     return result
 

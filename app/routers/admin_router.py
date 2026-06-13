@@ -2,6 +2,7 @@
 
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime, timedelta, timezone
 
 from app.redis_client import get_redis
 from app.postgres_client import get_pg
@@ -35,7 +36,7 @@ async def create_key(
 
     key_hash = hash_api_key(raw_key)
     key_prefix = api_key_prefix(raw_key)
-
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     row = await pg.fetchrow(
         """
         insert into api_keys (
@@ -44,9 +45,10 @@ async def create_key(
             key_prefix,
             key_hash,
             quota,
-            is_active
+            is_active,
+            expires_at
         )
-        values ($1, $2, $3, $4, $5, true)
+        values ($1, $2, $3, $4, $5, true, $6)
         returning
             id,
             external_user_id,
@@ -54,13 +56,15 @@ async def create_key(
             key_prefix,
             quota,
             is_active,
-            created_at
+            created_at,
+            expires_at
         """,
         data.user_id,
         data.user,
         key_prefix,
         key_hash,
         data.quota,
+        expires_at
     )
 
     return {
@@ -84,7 +88,8 @@ async def list_keys(
             quota,
             is_active,
             created_at,
-            last_used_at
+            last_used_at,
+            expires_at
         from api_keys
         order by created_at desc
         """
@@ -212,14 +217,15 @@ async def set_key_active_by_id(
 async def credit_key_by_id(
     key_id: int,
     body: CreditQuotaRequest,
-    pg_pool=Depends(get_pg),
+    pg=Depends(get_pg), 
 ):
-    return await credit_api_key_service(
-        pg_pool,
+     return await credit_api_key_service(
+        pg, 
         key_id=key_id,
         amount=body.amount,
         reason=body.reason,
         reference_id=body.reference_id,
+        days_to_add=getattr(body, "days_to_add", 30) # مقدار پیش‌فرض اگر در پایدانتیک نبود
     )
 
 
@@ -227,10 +233,10 @@ async def credit_key_by_id(
 async def debit_key_by_id(
     key_id: int,
     body: DebitQuotaRequest,
-    pg_pool=Depends(get_pg),
+    pg=Depends(get_pg),
 ):
     return await consume_api_key_quota_service(
-        pg_pool,
+        pg,
         key_id=key_id,
         amount=body.amount,
         reason=body.reason,

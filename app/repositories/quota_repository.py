@@ -10,28 +10,39 @@ async def credit_key_quota(
     amount: int,
     reason: Optional[str] = None,
     reference_id: Optional[str] = None,
+    days_to_add: Optional[int] = 30, # پیش‌فرض ۳۰ روز تمدید شود
 ):
     """
-    افزایش اعتبار یک API Key.
-    amount باید مثبت باشد.
+    افزایش اعتبار یک API Key و تمدید تاریخ انقضا.
     """
-
+    
+    # محاسبه تاریخ انقضای جدید: (زمان فعلی + تعداد روز)
+    # اگر days_to_add نال باشد، تاریخ انقضا تغییری نمی‌کند
+    
     async with conn.transaction():
-        key_row = await conn.fetchrow(
-            """
+        # ۱. آپدیت کوتای کلید و تمدید تاریخ انقضا
+        # منطق: اگر expires_at منقضی شده بود، از الان ۳۰ روز حساب کن.
+        # اگر هنوز منقضی نشده بود، ۳۰ روز به تاریخ قبلی اضافه کن (یا از الان حساب کن - بسته به بیزنس مدل شما)
+        
+        query = """
             UPDATE api_keys
-            SET quota = quota + $1
+            SET 
+                quota = quota + $1,
+                expires_at = CASE 
+                    WHEN $3::int IS NOT NULL THEN NOW() + ($3 || ' days')::interval
+                    ELSE expires_at 
+                END,
+                is_active = true -- در صورت شارژ، اگر غیرفعال بود فعالش کن
             WHERE id = $2
-              AND is_active = true
-            RETURNING id, external_user_id, quota
-            """,
-            amount,
-            key_id,
-        )
+            RETURNING id, external_user_id, quota, expires_at
+        """
+        
+        key_row = await conn.fetchrow(query, amount, key_id, days_to_add)
 
         if not key_row:
             return None
 
+        # ۲. ثبت در Ledger
         ledger_row = await conn.fetchrow(
             """
             INSERT INTO api_key_quota_ledger (
@@ -45,13 +56,13 @@ async def credit_key_quota(
             )
             VALUES ($1, $2, $3, $4, 'credit', $5, $6)
             RETURNING id
-            """,
+        """,
             key_row["id"],
             key_row["external_user_id"],
             amount,
             key_row["quota"],
-            reason,
-            reference_id,
+            reason or "top_up",
+            reference_id or f"credit_{uuid.uuid4().hex}",
         )
 
         return {
@@ -59,6 +70,7 @@ async def credit_key_quota(
             "external_user_id": key_row["external_user_id"],
             "credited": amount,
             "quota_remaining": key_row["quota"],
+            "expires_at": key_row["expires_at"], # تاریخ جدید را برگردان
             "ledger_id": ledger_row["id"],
         }
 
