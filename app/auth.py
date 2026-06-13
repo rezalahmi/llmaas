@@ -39,6 +39,8 @@ async def get_api_key(
     if row:
         if not row["is_active"]:
             raise HTTPException(status_code=401, detail="Inactive API key")
+        if row["quota"] <= 0:
+            raise HTTPException(status_code=402, detail="Quota exceeded")
         
         user = {
             "key_id": row["id"],
