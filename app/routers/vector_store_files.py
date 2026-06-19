@@ -83,7 +83,8 @@ async def attach_file(
             file_id=file_id,
             file_record=file_record,
             chunk_size=payload.chunk_size or 800,
-            chunk_overlap=payload.chunk_overlap or 400
+            chunk_overlap=payload.chunk_overlap or 400,
+            batch_id=None
         )
 
         return VectorStoreFileResponse(**result)

@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Optional
 import chromadb
 from fastapi import HTTPException
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -18,7 +19,7 @@ async def attach_file_to_vector_store(
     file_record: dict,
     chunk_size: int,
     chunk_overlap: int,
-    batch_id: str
+    batch_id: Optional[str] = None,
 ):
     # مسیر فایل از رکورد Postgres خوانده می‌شود
     # فرض می‌کنیم در Postgres ستون storage_path داریم: storage/files/file_id.pdf
