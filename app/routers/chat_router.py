@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.schemas.responses_schema import ResponseRequest
 from app.schemas.file_search import FileSearchQuery
 from app.services.file_search import search_in_vector_store
-from app.utility.build_prompt import build_rag_prompt_from_file_search
+from app.utility.build_prompt import build_rag_prompt_with_history
 from app.utils import build_prompt, build_messages, convert_to_openai_format, fully_serialize
 from app.services.llm_service import LLMService
 from app.services.quota_service import consume_api_key_quota_service
@@ -22,6 +22,127 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     tags=["Response"]
 )
+
+def extract_user_query(input_data) -> str:
+    """
+    استخراج متن query از فرمت‌های مختلف input
+    ⚠️ Deprecated: فقط آخرین پیام را برمی‌گرداند - برای جاهایی که فقط query نیاز است
+    """
+    
+    if isinstance(input_data, str):
+        return input_data
+    
+    if isinstance(input_data, list) and len(input_data) > 0:
+        last_msg = input_data[-1]
+        
+        content = getattr(last_msg, 'content', None)
+        if content is None:
+            content = getattr(last_msg, 'text', None)
+        
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get('type') in ('input_text', 'text'):
+                        return item.get('text', '')
+                    if 'text' in item:
+                        return item['text']
+                elif hasattr(item, 'text'):
+                    return item.text
+            return ''
+        
+        if isinstance(content, str):
+            return content
+        
+        if hasattr(last_msg, 'text'):
+            return last_msg.text
+    
+    return str(input_data) if input_data else ''
+
+
+def extract_conversation_data(input_data) -> tuple[str, list[dict]]:
+    """
+    استخراج آخرین query برای جستجو + کل تاریخچه برای prompt
+    
+    Returns:
+        tuple: (last_user_query, conversation_history)
+    
+    مثال:
+        input: [
+            {role: "user", content: "سلام"},
+            {role: "assistant", content: "سلام! چطور می‌تونم کمکتون کنم؟"},
+            {role: "user", content: "قوانین مرخصی رو بگو"}
+        ]
+        
+        output: (
+            "قوانین مرخصی رو بگو",
+            [
+                {"role": "user", "content": "سلام"},
+                {"role": "assistant", "content": "سلام! چطور می‌تونم کمکتون کنم؟"},
+                {"role": "user", "content": "قوانین مرخصی رو بگو"}
+            ]
+        )
+    """
+    
+    if isinstance(input_data, str):
+        return input_data, [{"role": "user", "content": input_data}]
+    
+    if not isinstance(input_data, list) or len(input_data) == 0:
+        return "", []
+    
+    history = []
+    last_user_query = ""
+    
+    for msg in input_data:
+        role = getattr(msg, 'role', None)
+        if not role:
+            continue
+        
+        # استخراج content
+        content = _extract_text_from_message(msg)
+        
+        history.append({
+            "role": role,
+            "content": content
+        })
+        
+        # ذخیره آخرین پیام کاربر
+        if role == "user" and content.strip():
+            last_user_query = content.strip()
+    
+    return last_user_query, history
+
+
+def _extract_text_from_message(msg) -> str:
+    """
+    استخراج متن از یک پیام (پشتیبانی از فرمت‌های مختلف)
+    """
+    content = getattr(msg, 'content', None)
+    if content is None:
+        content = getattr(msg, 'text', None)
+    
+    # حالت لیستی (فرمت OpenAI با چند part)
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get('type') in ('input_text', 'text'):
+                    text_parts.append(item.get('text', ''))
+                elif 'text' in item:
+                    text_parts.append(item['text'])
+            elif hasattr(item, 'text'):
+                text_parts.append(item.text)
+        return ' '.join(text_parts)
+    
+    # حالت رشته‌ای
+    if isinstance(content, str):
+        return content
+    
+    # fallback
+    if hasattr(msg, 'text'):
+        return msg.text
+    
+    return str(content) if content else ""
+
 
 
 async def stream_response(r, conn, key_id, request_id, citations=None):
@@ -231,11 +352,10 @@ async def create_response(
             # 2) If direct file_search → RAG pipeline
             # ===========================================
             if file_search_tool is not None:
-                # استخراج query
-                if isinstance(req.input, list):
-                    user_query = req.input[-1].text
-                else:
-                    user_query = req.input
+                user_query, conversation_history = extract_conversation_data(req.input)
+                    
+                if not user_query.strip():
+                    raise HTTPException(status_code=400, detail="Empty user query")
                 # ساختن FileSearchQuery
                 fs_query = FileSearchQuery(
                     vector_store_ids=file_search_tool["vector_store_ids"],
@@ -267,8 +387,16 @@ async def create_response(
                         status_code=502,
                         detail="Vector store search failed"
                     )
-                # تبدیل چانک‌ها به context
-                rag_prompt = build_rag_prompt_from_file_search(user_query, fs_response)
+                # ✅ پاس دادن اطلاعات مدل برای محاسبه دقیق بودجه توکن
+                rag_prompt = build_rag_prompt_with_history(
+                    conversation_history=conversation_history,
+                    fs_response=fs_response,
+                    current_query=user_query,
+                    model_name=req.model,  # نام مدل پاس داده می‌شود
+                    max_output_tokens=req.max_output_tokens or 2048  # محدودیت خروجی پاس داده می‌شود
+                )
+                    
+                logger.info(f"[RAG] Final prompt built. Model: {req.model}, Length: {len(rag_prompt)} chars")
                 # صدا زدن مدل با RAG prompt
                 input_tokens = count_tokens(rag_prompt)
                 if not req.stream:

@@ -10,3 +10,4 @@ dev.ps1
 storage/files/*.pdf
 storage/files/*.docx
 storage/files/*.txt
+app/services/Extractors/__pycache__/*.pyc
