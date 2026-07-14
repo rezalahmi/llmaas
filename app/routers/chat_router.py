@@ -282,6 +282,7 @@ async def create_response(
                     "top_p": req.top_p,
                     "num_predict": req.max_output_tokens,
                 },
+                "repetition_penalty": 1.2 
             }
             result = await llm.tools_calling(payload)
             logger.debug(f"DEBUG RESULT:\n{result}")
@@ -409,6 +410,7 @@ async def create_response(
                             "top_p": req.top_p,
                             "num_predict": req.max_output_tokens,
                         },
+                        "repetition_penalty": 1.2 
                     }
 
                     result = await llm.generate(payload)
@@ -466,6 +468,7 @@ async def create_response(
                             "top_p": req.top_p,
                             "num_predict": req.max_output_tokens,
                         },
+                        "repetition_penalty": 1.2 
                     }
                     print(f"[RAG STREAM] request_id={request_id}")
                     print(f"[RAG STREAM] model={req.model}")
@@ -575,7 +578,8 @@ async def create_response(
                     "temperature": req.temperature,
                     "top_p": req.top_p,
                     "num_predict": req.max_output_tokens
-                }
+                },
+                "repetition_penalty": 1.2 
             }
 
             result = await llm.generate(payload)
@@ -632,7 +636,8 @@ async def create_response(
                 "temperature": req.temperature,
                 "top_p": req.top_p,
                 "num_predict": req.max_output_tokens
-            }
+            },
+            "repetition_penalty": 1.2 
         }
 
         try:
