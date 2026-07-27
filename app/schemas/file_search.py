@@ -16,6 +16,11 @@ class FileSearchResultChunk(BaseModel):
     document_id: str
     text: str
     score: float
+    dense_score: float | None = Field(default=None, exclude=True)
+    rerank_score: float | None = Field(default=None, exclude=True)
+    dense_rank: int | None = Field(default=None, exclude=True)
+    rerank_rank: int | None = Field(default=None, exclude=True)
+    dense_distance: float | None = Field(default=None, exclude=True)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

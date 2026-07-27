@@ -34,7 +34,7 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
     try:
         query_embedding_vector = await embed_text(query.query)
     except Exception as e:
-        logger.error(f"Embedding failed for query '{query.query}': {e}", exc_info=True)
+        logger.error("Embedding failed for a search query", exc_info=True)
         raise HTTPException(status_code=502, detail="Failed to generate embeddings for the search query")
 
     max_results = query.max_results or 10
@@ -73,6 +73,11 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
                     "document_id": doc_id,
                     "text": doc_text,
                     "score": calculate_score_from_distance(dist),
+                    "dense_score": calculate_score_from_distance(dist),
+                    "rerank_score": None,
+                    "dense_rank": None,
+                    "rerank_rank": None,
+                    "dense_distance": dist,
                     "metadata": meta or {},
                     "distance": dist,
                 })
@@ -82,8 +87,12 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
             continue
 
     if not all_raw_results:
-        logger.info(f"[search] No results found for query='{query.query}'")
+        logger.info("[search] No results found")
         return FileSearchResponse(results=[])
+
+    all_raw_results.sort(key=lambda item: item["dense_score"], reverse=True)
+    for dense_rank, item in enumerate(all_raw_results, start=1):
+        item["dense_rank"] = dense_rank
 
     reranked_results = await rerank_results(query.query, all_raw_results)
     sorted_results = reranked_results if reranked_results else all_raw_results
@@ -120,6 +129,11 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
             document_id=r["document_id"],
             text=r["text"],
             score=r["score"],
+            dense_score=r.get("dense_score"),
+            rerank_score=r.get("rerank_score"),
+            dense_rank=r.get("dense_rank"),
+            rerank_rank=r.get("rerank_rank"),
+            dense_distance=r.get("dense_distance"),
             metadata=r["metadata"]
         )
         for r in final_results

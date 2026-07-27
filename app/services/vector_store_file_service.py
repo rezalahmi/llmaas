@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 from typing import Optional
@@ -7,6 +8,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.services.embedding_service import embed_texts
 from app.services.Extractors.master_extractor import EXTRACTORS
 from app.services.vector_store_metadata_service import upsert_vector_store_file
+from app.repositories.evaluation_repository import (
+    delete_chunk_inventory,
+    replace_chunk_inventory,
+)
+from app.token_counter import count_tokens
 
 chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./storage/chroma")
@@ -93,6 +99,32 @@ async def attach_file_to_vector_store(
         metadatas=final_metadatas
     )
 
+    embedding_version = os.getenv("EMBEDDING_MODEL_VERSION", "unversioned")
+    await replace_chunk_inventory(
+        pg,
+        api_key_id=file_record["api_key_id"],
+        vector_store_id=vector_store_id,
+        file_id=file_id,
+        chunks=[
+            {
+                "id": chunk_id,
+                "chunk_index": metadata["chunk_index"],
+                "chunking_strategy": "recursive_character",
+                "chunking_version": "v1",
+                "embedding_version": embedding_version,
+                "character_count": len(chunk_text),
+                "token_count": count_tokens(chunk_text),
+                "exact_hash": hashlib.sha256(
+                    " ".join(chunk_text.split()).encode("utf-8")
+                ).hexdigest(),
+                "metadata": metadata,
+            }
+            for chunk_id, chunk_text, metadata in zip(
+                ids, final_chunks, final_metadatas
+            )
+        ],
+    )
+
     # ۵. آپدیت وضعیت در Postgres به ready
     # از همان تابعی که در فایل قبلی نوشتیم با وضعیت 'ready' استفاده می‌کنیم
     db_row = await upsert_vector_store_file(
@@ -153,6 +185,11 @@ async def detach_file_from_vector_store_pg(
     # ۳) حذف از Chroma
     collection = chroma_client.get_or_create_collection(name=vector_store_id)
     collection.delete(where={"file_id": file_id})
+    await delete_chunk_inventory(
+        pg,
+        vector_store_id=vector_store_id,
+        file_id=file_id,
+    )
 
     # ۴) حذف attachment از DB
     await pg.execute(

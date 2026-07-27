@@ -41,7 +41,7 @@ async def rerank_results(query: str, results: List[Dict[str, Any]]) -> List[Dict
         text_to_items[text].append(item)
     
     sorted_results = []
-    for rank_item in reranked_data:
+    for rerank_index, rank_item in enumerate(reranked_data, start=1):
         text = rank_item["text"]
         score = rank_item["score"]
         
@@ -49,7 +49,9 @@ async def rerank_results(query: str, results: List[Dict[str, Any]]) -> List[Dict
             # برداشتن اولین آیتم موجود برای این متن
             original_item = text_to_items[text].pop(0)
             # به‌روزرسانی امتیاز با امتیاز دقیق‌ترِ ریرنکر
-            original_item["score"] = score 
+            original_item["rerank_score"] = score
+            original_item["rerank_rank"] = rerank_index
+            original_item["score"] = score
             sorted_results.append(original_item)
             
     return sorted_results
