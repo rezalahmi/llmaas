@@ -8,7 +8,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.services.embedding_service import embed_texts
 from app.services.Extractors.master_extractor import EXTRACTORS
 from app.services.vector_store_metadata_service import upsert_vector_store_file
-from app.repositories.evaluation_repository import (
+from app.repositories.chunk_repository import (
     delete_chunk_inventory,
     replace_chunk_inventory,
 )
