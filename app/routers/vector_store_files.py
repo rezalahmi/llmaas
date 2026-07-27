@@ -2,7 +2,7 @@
 import logging
 import asyncio
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, status, BackgroundTasks, Request
 
 from app.schemas.vector_store_files import (
     VectorStoreFileCreate,
@@ -27,6 +27,12 @@ from app.services.vector_store_metadata_service import (
 )
 from app.services.file_metadata_service import get_file_metadata 
 from app.services.vector_store_batch_service import create_batch_record, update_batch_progress, get_batch_status
+from app.services.idempotency_service import (
+    IdempotencyClaim,
+    canonical_json_hash,
+    claim_idempotency,
+    complete_idempotency,
+)
 from app.dependencies import get_current_user
 from app.postgres_client import get_pg
 
@@ -102,6 +108,7 @@ async def create_file_batch(
     vector_store_id: str,
     payload: VectorStoreFileBatchCreate,
     background_tasks: BackgroundTasks,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user=Depends(get_current_user),
     pool=Depends(get_pool),
 ):
@@ -115,7 +122,38 @@ async def create_file_batch(
             raise HTTPException(status_code=404, detail="Vector store not found.")
         
         # ساخت رکورد Batch در دیتابیس در همین مرحله
+        request_hash = canonical_json_hash(
+            method="POST",
+            route=f"/vector_stores/{vector_store_id}/file_batches",
+            payload=payload.model_dump(mode="json"),
+            api_key_id=api_key_id,
+        )
+        idempotency = await claim_idempotency(
+            conn,
+            api_key_id=api_key_id,
+            operation="create_vector_store_file_batch",
+            key=idempotency_key,
+            request_hash=request_hash,
+        )
+        if idempotency is not None and not isinstance(idempotency, IdempotencyClaim):
+            return idempotency
+
         batch_id = await create_batch_record(conn, vector_store_id, api_key_id, len(payload.file_ids))
+        response_body = {
+            "id": batch_id,
+            "object": "vector_store.file_batch",
+            "vector_store_id": vector_store_id,
+            "status": "in_progress",
+            "created_at": int(datetime.now(timezone.utc).timestamp())
+        }
+        await complete_idempotency(
+            conn,
+            idempotency,
+            response_status=status.HTTP_200_OK,
+            response_body=response_body,
+            resource_type="vector_store_file_batch",
+            resource_id=batch_id,
+        )
 
     # ۲. تعریف تابع Ingestion (بهتر است خارج از روت باشد، اما اینجا برای دسترسی راحت اصلاحش می‌کنیم)
     # توجه: تمام متغیرهای مورد نیاز را صراحتاً به تابع پاس می‌دهیم
@@ -174,13 +212,7 @@ async def create_file_batch(
     )
 
     # ۴. پاسخ فوری به کاربر
-    return {
-        "id": batch_id,
-        "object": "vector_store.file_batch",
-        "vector_store_id": vector_store_id,
-        "status": "in_progress",
-        "created_at": int(datetime.now(timezone.utc).timestamp())
-    }
+    return response_body
 
 
 

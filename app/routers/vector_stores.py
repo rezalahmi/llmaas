@@ -1,6 +1,6 @@
 import logging
 import time
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 
 router = APIRouter(prefix="/vector_stores", tags=["Vector Stores"])
@@ -22,6 +22,12 @@ from app.services.vector_store_service import (
     retrieve_vector_store,
     service_patch_vector_store, 
     service_get_vector_store_file
+)
+from app.services.idempotency_service import (
+    IdempotencyClaim,
+    canonical_json_hash,
+    claim_idempotency,
+    complete_idempotency,
 )
 
 from app.services.vector_store_metadata_service import (
@@ -61,6 +67,7 @@ async def get_vector_store(
 @router.post("/", response_model=VectorStoreResponse)
 async def create_vs(
     payload: VectorStoreCreate,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user=Depends(get_current_user),
     pg=Depends(get_pg),
 ):
@@ -77,6 +84,22 @@ async def create_vs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Vector store name cannot be empty."
         )
+
+    request_hash = canonical_json_hash(
+        method="POST",
+        route="/vector_stores/",
+        payload=payload.model_dump(mode="json"),
+        api_key_id=api_key_id,
+    )
+    idempotency = await claim_idempotency(
+        pg,
+        api_key_id=api_key_id,
+        operation="create_vector_store",
+        key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if idempotency is not None and not isinstance(idempotency, IdempotencyClaim):
+        return idempotency
 
     existing_count = await count_user_vector_stores(pg, api_key_id=api_key_id)
 
@@ -105,11 +128,20 @@ async def create_vs(
             f"User api_key_id={api_key_id} created vector store {vector_store_id}"
         )
 
-        return VectorStoreResponse(
+        response = VectorStoreResponse(
             id=row["id"],
             name=row["name"],
             created_at=row["created_at"],
         )
+        await complete_idempotency(
+            pg,
+            idempotency,
+            response_status=status.HTTP_200_OK,
+            response_body=response.model_dump(mode="json"),
+            resource_type="vector_store",
+            resource_id=row["id"],
+        )
+        return response
 
     except HTTPException:
         raise

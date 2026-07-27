@@ -1,6 +1,7 @@
 # app/routers/files.py
+import hashlib
 import logging
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, Depends, Header, HTTPException, status
 
 from app.schemas.files import FileUploadResponse, FileListResponse, FileResponse
 from app.dependencies import get_current_user
@@ -14,6 +15,12 @@ from app.services.file_metadata_service import (
     list_files_by_user,
     delete_file_record
 )
+from app.services.idempotency_service import (
+    IdempotencyClaim,
+    claim_idempotency,
+    complete_idempotency,
+    multipart_hash,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/files", tags=["Files"])
@@ -22,6 +29,7 @@ router = APIRouter(prefix="/files", tags=["Files"])
 @router.post("/", response_model=FileUploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user=Depends(get_current_user),
     pg=Depends(get_pg),
 ):
@@ -34,6 +42,27 @@ async def upload_file(
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is missing")
+
+    content_hash = hashlib.sha256()
+    while chunk := await file.read(1024 * 1024):
+        content_hash.update(chunk)
+    await file.seek(0)
+
+    request_hash = multipart_hash(
+        filename=file.filename,
+        content_type=file.content_type,
+        file_sha256=content_hash.hexdigest(),
+        api_key_id=api_key_id,
+    )
+    idempotency = await claim_idempotency(
+        pg,
+        api_key_id=api_key_id,
+        operation="upload_file",
+        key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if idempotency is not None and not isinstance(idempotency, IdempotencyClaim):
+        return idempotency
 
     file_id = generate_file_id()
 
@@ -68,11 +97,20 @@ async def upload_file(
             storage_backend="disk",
         )
 
-        return FileUploadResponse(
+        response = FileUploadResponse(
             file_id=file_id,
             filename=file_meta["filename"],
             bytes=file_meta["bytes"]
         )
+        await complete_idempotency(
+            pg,
+            idempotency,
+            response_status=status.HTTP_200_OK,
+            response_body=response.model_dump(mode="json"),
+            resource_type="file",
+            resource_id=file_id,
+        )
+        return response
 
     except HTTPException:
         raise
