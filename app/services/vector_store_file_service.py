@@ -90,8 +90,13 @@ async def attach_file_to_vector_store(
         embedding_function=None
     )
 
-    # پاک‌سازی قبلی (Idempotency)
-    collection.delete(where={"file_id": file_id})
+    # Keep previous IDs until the replacement has been written successfully.
+    # This prevents a failed upsert from making an existing attachment empty.
+    existing = collection.get(
+        where={"file_id": file_id},
+        include=["metadatas"],
+    )
+    existing_ids = set(existing.get("ids") or [])
 
     chunking_parameters = {
         "chunk_size": chunk_size,
@@ -119,12 +124,15 @@ async def attach_file_to_vector_store(
             }
         )
     
-    collection.add(
+    collection.upsert(
         ids=ids,
         documents=final_chunks,
         embeddings=embeddings,
         metadatas=final_metadatas
     )
+    stale_ids = sorted(existing_ids - set(ids))
+    if stale_ids:
+        collection.delete(ids=stale_ids)
 
     await replace_chunk_inventory(
         pg,
@@ -174,7 +182,9 @@ async def attach_file_to_vector_store(
         api_key_id=file_record["api_key_id"],
         status="ready",
         batch_id=batch_id,
-        error=None
+        error=None,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
     )
 
     return {

@@ -238,7 +238,9 @@ async def upsert_vector_store_file(
     api_key_id: int, 
     status: str,
     batch_id: str = None,
-    error: str = None
+    error: str = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
 ):
     """
     ثبت یا به‌روزرسانی وضعیت فایل در یک وکتور استور.
@@ -249,20 +251,35 @@ async def upsert_vector_store_file(
     
     query = """
         INSERT INTO vector_store_files (
-            id, vector_store_id, file_id, external_user_id, api_key_id, status, batch_id, error, updated_at
+            id, vector_store_id, file_id, external_user_id, api_key_id,
+            status, batch_id, error, chunk_size, chunk_overlap, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
         ON CONFLICT (vector_store_id, file_id) WHERE deleted_at IS NULL
         DO UPDATE SET 
             status = EXCLUDED.status,
             batch_id = COALESCE(EXCLUDED.batch_id, vector_store_files.batch_id),
             error = EXCLUDED.error,
+            chunk_size = COALESCE(EXCLUDED.chunk_size, vector_store_files.chunk_size),
+            chunk_overlap = COALESCE(
+                EXCLUDED.chunk_overlap,
+                vector_store_files.chunk_overlap
+            ),
             updated_at = NOW()
         RETURNING id, created_at;
     """
     return await pg.fetchrow(
         query, 
-        new_id, vector_store_id, file_id, external_user_id, api_key_id, status, batch_id, error
+        new_id,
+        vector_store_id,
+        file_id,
+        external_user_id,
+        api_key_id,
+        status,
+        batch_id,
+        error,
+        chunk_size,
+        chunk_overlap,
     )
 
 

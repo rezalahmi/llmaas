@@ -72,4 +72,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  
+  chunk_registry_backfill:
+    build:
+      context: .
+      dockerfile: docker/maintenance.Dockerfile.stage
+    environment:
+      ENVIRONMENT: stage
+      DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
+      EMBEDDING_URL: http://host.docker.internal:9000/embed
+      EMBEDDING_URL_BATCH: http://host.docker.internal:9000/embed_batch
+      RERANKER_URL: http://host.docker.internal:9100/rerank
+      CHROMA_PATH: /data/chroma

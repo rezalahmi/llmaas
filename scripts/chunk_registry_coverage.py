@@ -37,17 +37,20 @@ async def run():
         await pg.close()
 
     report = dict(row)
-    total = report["total_chunks"]
-    report["registered_coverage_percent"] = (
-        round(report["registered_chunks"] * 100 / total, 2) if total else 100.0
+    total_attachments = report["total_attachments"]
+    report["attachment_coverage_percent"] = (
+        round(report["complete_attachments"] * 100 / total_attachments, 2)
+        if total_attachments
+        else 100.0
     )
+    total_chunks = report["total_chunks"]
     report["fully_versioned_coverage_percent"] = (
-        round(report["fully_versioned_chunks"] * 100 / total, 2)
-        if total
+        round(report["fully_versioned_chunks"] * 100 / total_chunks, 2)
+        if total_chunks
         else 100.0
     )
     print(json.dumps(report, sort_keys=True))
-    if report["registered_coverage_percent"] < args.fail_under:
+    if report["attachment_coverage_percent"] < args.fail_under:
         raise SystemExit(1)
 
 

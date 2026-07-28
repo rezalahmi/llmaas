@@ -8,24 +8,56 @@ re-ingested with explicit P1 configuration.
 
 ## Rollout
 
-1. Apply `009_versioned_chunk_identity.sql`.
+1. Apply `009_versioned_chunk_identity.sql` and
+   `010_chunk_registry_backfill.sql`.
 2. Set non-placeholder values for:
    `EMBEDDING_MODEL`, `EMBEDDING_MODEL_VERSION`, `RERANKER_MODEL`,
    `RERANKER_MODEL_VERSION`, `CHUNKING_STRATEGY`, `CHUNKING_VERSION`,
    `GENERATION_MODEL`, `GENERATION_MODEL_VERSION`, `VECTOR_INDEX_PROVIDER`,
    and `VECTOR_INDEX_VERSION`.
-3. Run the coverage inventory per tenant. The report contains counts only and
-   never reads chunk content:
+3. Run the global attachment-aware coverage inventory. It detects ready
+   attachments with no registry rows, so an empty registry cannot produce a
+   false 100% result. The report contains counts only and never reads content:
 
    ```text
-   python -m scripts.chunk_registry_coverage --api-key-id 42 --fail-under 100
+   python -m scripts.chunk_registry_coverage --fail-under 100
    ```
 
-4. Re-ingest attached files for tenants with unresolved rows using the original
-   approved chunking settings. Re-ingestion writes deterministic `chunk_ref`
-   values to Chroma and PostgreSQL atomically at registry level.
-5. Repeat the inventory until both registered and fully-versioned coverage are
-   100%. Production promotion is blocked below 100%.
+4. Preview the global maintenance job. This is also the safe default Docker
+   command:
+
+   ```text
+   docker compose --profile maintenance run --rm chunk_registry_backfill
+   ```
+
+5. Process attachments whose original chunk settings are known:
+
+   ```text
+   docker compose --profile maintenance run --rm chunk_registry_backfill \
+     python -m scripts.backfill_chunk_registry --concurrency 2
+   ```
+
+6. Old attachments do not have persisted `chunk_size`/`chunk_overlap`. They are
+   reported as `settings_unknown` and are not changed. After explicit approval,
+   apply chosen defaults:
+
+   ```text
+   docker compose --profile maintenance run --rm chunk_registry_backfill \
+     python -m scripts.backfill_chunk_registry \
+     --use-default-chunking \
+     --default-chunk-size 800 \
+     --default-chunk-overlap 400 \
+     --concurrency 2
+   ```
+
+7. Repeat coverage until attachment and fully-versioned coverage are 100%.
+   Production promotion is blocked below 100%.
+
+Useful controls are `--dry-run`, `--api-key-id`, `--limit`, `--page-size`, and
+`--concurrency`. The job uses a PostgreSQL advisory lock, isolates failures per
+attachment, stores only sanitized failure codes, and is resumable: complete
+attachments leave the candidate query while incomplete/failed ones remain
+eligible for the next run.
 
 Changing chunking strategy, version, size, or overlap intentionally creates a
 new logical identity. Re-ingestion with identical source text and identical

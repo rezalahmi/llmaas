@@ -380,6 +380,42 @@ coverage inventory پیاده‌سازی و با contract test قفل شده‌�
 
 ---
 
+## فاز 1.5 — Backfill عملیاتی Chunk Registry
+
+### هدف
+
+تکمیل facts فاز ۱ برای attachmentهای موجود، بدون حدس‌زدن تنظیمات تاریخی و پیش
+از فعال‌سازی runtime trace.
+
+### خروجی
+
+- coverage واقعی در سطح attachment، شامل attachment فاقد registry؛
+- maintenance job سراسری و tenant-safe با dry-run و advisory lock؛
+- اجرای resumable، pagination، محدودیت concurrency و failure isolation؛
+- ثبت تنظیمات chunking برای ingestionهای جدید؛
+- وضعیت صریح `settings_unknown` برای تنظیمات تاریخی ثبت‌نشده؛
+- opt-in اجباری برای استفاده از default chunking؛
+- Docker Compose maintenance profile.
+
+### Definition of Done
+
+- اجرای global نیاز به فهرست دستی API keyها نداشته باشد.
+- dry-run هیچ mutation در PostgreSQL یا Chroma ایجاد نکند.
+- اجرای هم‌زمان دو backfill سراسری ممکن نباشد.
+- failure یک attachment مانع پردازش attachmentهای دیگر نشود.
+- متن query/content و متن خام exception در وضعیت backfill ذخیره نشود.
+- attachment کامل در اجرای بعدی دوباره انتخاب نشود.
+- gate استقرار با attachment coverage و fully-versioned coverage برابر ۱۰۰٪
+  کنترل شود.
+
+### وضعیت فعلی
+
+`تکمیل‌شده در کد` — migration، coverage attachment-aware، maintenance job،
+Docker profile و تست‌های ایمنی پیاده‌سازی شده‌اند. اجرای migration و backfill
+روی داده هر محیط یک اقدام عملیاتی مستقل است.
+
+---
+
 ## فاز 2 — Runtime Retrieval Trace در پاسخ
 
 ### هدف
@@ -605,6 +641,8 @@ Phase 0: Contract Freeze
         ↓
 Phase 1: Versioned Facts
         ↓
+Phase 1.5: Registry Backfill
+        ↓
 Phase 2: Runtime Trace
         ↓
 Phase 3: Consumer Integration
@@ -620,7 +658,8 @@ Phase 7: Optional Intelligence
 
 قواعد Gate:
 
-- فاز ۲ بدون identity و version معتبر وارد production نمی‌شود.
+- فاز ۲ بدون identity و version معتبر و registry coverage صددرصد وارد
+  production نمی‌شود.
 - فاز ۳ بدون trace contract test آغاز نمی‌شود.
 - فاز ۵ بدون dataset versioned و run reproducible پذیرفته نمی‌شود.
 - threshold یا tuning قبل از baseline واقعی مجاز نیست.
