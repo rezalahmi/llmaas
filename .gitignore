@@ -11,3 +11,5 @@ storage/files/*.pdf
 storage/files/*.docx
 storage/files/*.txt
 app/services/Extractors/__pycache__/*.pyc
+scripts/__pycache__/chunk_registry_coverage.cpython-312.pyc
+storage/chroma/chroma.sqlite3
