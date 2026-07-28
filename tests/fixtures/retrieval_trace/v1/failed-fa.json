@@ -5,11 +5,31 @@
   "retrieval_status": "failed",
   "retrieval_failure": "timeout",
   "vector_store_ids": ["vs_fa_docs"],
+  "stages": [
+    {"stage": "query_rewrite", "status": "not_requested", "failure": null},
+    {"stage": "dense_retrieval", "status": "failed", "failure": "timeout"},
+    {"stage": "filtering", "status": "not_requested", "failure": null},
+    {"stage": "reranking", "status": "not_requested", "failure": null},
+    {"stage": "context_selection", "status": "not_requested", "failure": null}
+  ],
   "retrieved_sources": [],
-  "metrics": {"candidate_count": 0, "selected_count": 0, "latency_ms": 2000},
+  "metrics": {
+    "candidate_count": 0,
+    "selected_count": 0,
+    "attempt_count": 2,
+    "query_rewrite_count": 0,
+    "latency_ms": 2000
+  },
   "versions": {
+    "retrieval_pipeline_version": "1",
+    "vector_index_provider": "chroma",
+    "vector_index_provider_version": "1.0",
+    "index_version": "idx_fa_2026_07_28",
+    "corpus_revision": null,
     "embedding_model": "embedding-fa",
     "embedding_version": "4",
+    "query_rewriter_model": null,
+    "query_rewriter_version": null,
     "reranker_model": null,
     "reranker_version": null,
     "chunking_strategy": "recursive_character",

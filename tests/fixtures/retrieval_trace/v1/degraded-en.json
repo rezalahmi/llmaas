@@ -5,6 +5,13 @@
   "retrieval_status": "degraded",
   "retrieval_failure": "provider_error",
   "vector_store_ids": ["vs_en_docs"],
+  "stages": [
+    {"stage": "query_rewrite", "status": "not_requested", "failure": null},
+    {"stage": "dense_retrieval", "status": "completed", "failure": null},
+    {"stage": "filtering", "status": "completed", "failure": null},
+    {"stage": "reranking", "status": "failed", "failure": "provider_error"},
+    {"stage": "context_selection", "status": "degraded", "failure": null}
+  ],
   "retrieved_sources": [
     {
       "source_id": "file_en_7",
@@ -17,10 +24,23 @@
       "selected": true
     }
   ],
-  "metrics": {"candidate_count": 1, "selected_count": 1, "latency_ms": 140},
+  "metrics": {
+    "candidate_count": 1,
+    "selected_count": 1,
+    "attempt_count": 1,
+    "query_rewrite_count": 0,
+    "latency_ms": 140
+  },
   "versions": {
+    "retrieval_pipeline_version": "1",
+    "vector_index_provider": "chroma",
+    "vector_index_provider_version": "1.0",
+    "index_version": "idx_en_2026_07_28",
+    "corpus_revision": null,
     "embedding_model": "embedding-x",
     "embedding_version": "3",
+    "query_rewriter_model": null,
+    "query_rewriter_version": null,
     "reranker_model": "reranker-y",
     "reranker_version": "2",
     "chunking_strategy": "recursive_character",

@@ -58,6 +58,18 @@
           "title": "Selected Count",
           "type": "integer"
         },
+        "attempt_count": {
+          "description": "Number of retrieval attempts in this retrieval session.",
+          "minimum": 0,
+          "title": "Attempt Count",
+          "type": "integer"
+        },
+        "query_rewrite_count": {
+          "description": "Number of query rewrites; rewritten text is never included.",
+          "minimum": 0,
+          "title": "Query Rewrite Count",
+          "type": "integer"
+        },
         "latency_ms": {
           "minimum": 0,
           "title": "Latency Ms",
@@ -67,10 +79,51 @@
       "required": [
         "candidate_count",
         "selected_count",
+        "attempt_count",
+        "query_rewrite_count",
         "latency_ms"
       ],
       "title": "RetrievalMetrics",
       "type": "object"
+    },
+    "RetrievalStage": {
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "$ref": "#/$defs/RetrievalStageName"
+        },
+        "status": {
+          "$ref": "#/$defs/RetrievalStatus"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrievalFailure"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "stage",
+        "status",
+        "failure"
+      ],
+      "title": "RetrievalStage",
+      "type": "object"
+    },
+    "RetrievalStageName": {
+      "enum": [
+        "query_rewrite",
+        "dense_retrieval",
+        "filtering",
+        "reranking",
+        "context_selection"
+      ],
+      "title": "RetrievalStageName",
+      "type": "string"
     },
     "RetrievalStatus": {
       "enum": [
@@ -86,6 +139,43 @@
     "RetrievalVersions": {
       "additionalProperties": false,
       "properties": {
+        "retrieval_pipeline_version": {
+          "minLength": 1,
+          "title": "Retrieval Pipeline Version",
+          "type": "string"
+        },
+        "vector_index_provider": {
+          "minLength": 1,
+          "title": "Vector Index Provider",
+          "type": "string"
+        },
+        "vector_index_provider_version": {
+          "minLength": 1,
+          "title": "Vector Index Provider Version",
+          "type": "string"
+        },
+        "index_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Index Version"
+        },
+        "corpus_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Corpus Revision"
+        },
         "embedding_model": {
           "minLength": 1,
           "title": "Embedding Model",
@@ -95,6 +185,28 @@
           "minLength": 1,
           "title": "Embedding Version",
           "type": "string"
+        },
+        "query_rewriter_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Query Rewriter Model"
+        },
+        "query_rewriter_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Query Rewriter Version"
         },
         "reranker_model": {
           "anyOf": [
@@ -140,8 +252,15 @@
         }
       },
       "required": [
+        "retrieval_pipeline_version",
+        "vector_index_provider",
+        "vector_index_provider_version",
+        "index_version",
+        "corpus_revision",
         "embedding_model",
         "embedding_version",
+        "query_rewriter_model",
+        "query_rewriter_version",
         "reranker_model",
         "reranker_version",
         "chunking_strategy",
@@ -263,7 +382,7 @@
       "type": "string"
     },
     "trace_id": {
-      "description": "Opaque identifier used to correlate facts across systems.",
+      "description": "Opaque identifier for the entire retrieval session. It remains unchanged across attempts and query rewrites.",
       "minLength": 1,
       "pattern": "^ragtrace_[A-Za-z0-9_-]+$",
       "title": "Trace Id",
@@ -287,6 +406,13 @@
         "type": "string"
       },
       "title": "Vector Store Ids",
+      "type": "array"
+    },
+    "stages": {
+      "items": {
+        "$ref": "#/$defs/RetrievalStage"
+      },
+      "title": "Stages",
       "type": "array"
     },
     "retrieved_sources": {
@@ -313,6 +439,7 @@
     "retrieval_status",
     "retrieval_failure",
     "vector_store_ids",
+    "stages",
     "retrieved_sources",
     "metrics",
     "versions",

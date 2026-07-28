@@ -30,6 +30,14 @@ class RetrievalFailure(str, Enum):
     UNKNOWN = "unknown"
 
 
+class RetrievalStageName(str, Enum):
+    QUERY_REWRITE = "query_rewrite"
+    DENSE_RETRIEVAL = "dense_retrieval"
+    FILTERING = "filtering"
+    RERANKING = "reranking"
+    CONTEXT_SELECTION = "context_selection"
+
+
 class ConfidenceStatus(str, Enum):
     NOT_SUPPORTED = "not_supported"
 
@@ -78,6 +86,14 @@ class RetrievedSource(ContractModel):
 class RetrievalMetrics(ContractModel):
     candidate_count: int = Field(ge=0)
     selected_count: int = Field(ge=0)
+    attempt_count: int = Field(
+        ge=0,
+        description="Number of retrieval attempts in this retrieval session.",
+    )
+    query_rewrite_count: int = Field(
+        ge=0,
+        description="Number of query rewrites; rewritten text is never included.",
+    )
     latency_ms: int = Field(ge=0)
 
     @model_validator(mode="after")
@@ -87,9 +103,30 @@ class RetrievalMetrics(ContractModel):
         return self
 
 
+class RetrievalStage(ContractModel):
+    stage: RetrievalStageName
+    status: RetrievalStatus
+    failure: RetrievalFailure | None
+
+    @model_validator(mode="after")
+    def failed_stage_has_failure(self) -> "RetrievalStage":
+        if self.status == RetrievalStatus.FAILED and self.failure is None:
+            raise ValueError("a failed stage must have a failure")
+        if self.status == RetrievalStatus.NOT_REQUESTED and self.failure is not None:
+            raise ValueError("a not_requested stage cannot have a failure")
+        return self
+
+
 class RetrievalVersions(ContractModel):
+    retrieval_pipeline_version: str = Field(min_length=1)
+    vector_index_provider: str = Field(min_length=1)
+    vector_index_provider_version: str = Field(min_length=1)
+    index_version: str | None
+    corpus_revision: str | None
     embedding_model: str = Field(min_length=1)
     embedding_version: str = Field(min_length=1)
+    query_rewriter_model: str | None
+    query_rewriter_version: str | None
     reranker_model: str | None
     reranker_version: str | None
     chunking_strategy: str = Field(min_length=1)
@@ -98,7 +135,16 @@ class RetrievalVersions(ContractModel):
     generation_version: str = Field(min_length=1)
 
     @model_validator(mode="after")
-    def reranker_identity_is_atomic(self) -> "RetrievalVersions":
+    def dependency_versions_are_complete(self) -> "RetrievalVersions":
+        if self.index_version is None and self.corpus_revision is None:
+            raise ValueError("index_version or corpus_revision must be set")
+        if (self.query_rewriter_model is None) != (
+            self.query_rewriter_version is None
+        ):
+            raise ValueError(
+                "query_rewriter_model and query_rewriter_version must both be "
+                "set or both be null"
+            )
         if (self.reranker_model is None) != (self.reranker_version is None):
             raise ValueError(
                 "reranker_model and reranker_version must both be set or both be null"
@@ -119,11 +165,15 @@ class RetrievalTraceEvent(ContractModel):
     trace_id: str = Field(
         min_length=1,
         pattern=r"^ragtrace_[A-Za-z0-9_-]+$",
-        description="Opaque identifier used to correlate facts across systems.",
+        description=(
+            "Opaque identifier for the entire retrieval session. It remains "
+            "unchanged across attempts and query rewrites."
+        ),
     )
     retrieval_status: RetrievalStatus
     retrieval_failure: RetrievalFailure | None
     vector_store_ids: list[str]
+    stages: list[RetrievalStage]
     retrieved_sources: list[RetrievedSource]
     metrics: RetrievalMetrics
     versions: RetrievalVersions
@@ -132,6 +182,14 @@ class RetrievalTraceEvent(ContractModel):
     @model_validator(mode="after")
     def enforce_event_invariants(self) -> "RetrievalTraceEvent":
         selected_sources = sum(source.selected for source in self.retrieved_sources)
+        source_attributions = {
+            (source.source_id, source.chunk_ref) for source in self.retrieved_sources
+        }
+        stage_names = {stage.stage for stage in self.stages}
+        if len(source_attributions) != len(self.retrieved_sources):
+            raise ValueError("source_id/chunk_ref attribution must be unique")
+        if len(stage_names) != len(self.stages):
+            raise ValueError("each retrieval stage may appear at most once")
         if self.metrics.candidate_count != len(self.retrieved_sources):
             raise ValueError(
                 "candidate_count must equal the number of retrieved_sources"
@@ -144,11 +202,16 @@ class RetrievalTraceEvent(ContractModel):
             if (
                 self.retrieval_failure is not None
                 or self.vector_store_ids
+                or self.stages
                 or self.retrieved_sources
+                or self.metrics.attempt_count != 0
+                or self.metrics.query_rewrite_count != 0
             ):
                 raise ValueError(
                     "not_requested events cannot contain retrieval facts or failure"
                 )
+        elif self.metrics.attempt_count < 1:
+            raise ValueError("requested retrieval sessions must have an attempt")
         if (
             self.retrieval_status == RetrievalStatus.COMPLETED
             and self.metrics.selected_count > 0
@@ -162,4 +225,13 @@ class RetrievalTraceEvent(ContractModel):
             and self.retrieval_failure is None
         ):
             raise ValueError("failed events must have a retrieval_failure")
+        if self.retrieval_status == RetrievalStatus.FAILED and not any(
+            stage.status == RetrievalStatus.FAILED for stage in self.stages
+        ):
+            raise ValueError("failed events must identify a failed stage")
+        if self.retrieval_status == RetrievalStatus.DEGRADED and not any(
+            stage.status in {RetrievalStatus.DEGRADED, RetrievalStatus.FAILED}
+            for stage in self.stages
+        ):
+            raise ValueError("degraded events must identify a degraded/failed stage")
         return self

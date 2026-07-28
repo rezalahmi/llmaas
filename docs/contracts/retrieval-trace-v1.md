@@ -9,6 +9,9 @@ does not emit this event until Phase 2.
 - SSE event name: `response.retrieval_trace`
 - Payload discriminator: `type = retrieval_trace`
 - Schema version: `1.0`
+- `trace_id` identifies the whole retrieval session, not one attempt. Retries
+  and query rewrites keep the same `trace_id`; they are summarized by
+  `attempt_count` and `query_rewrite_count`.
 - Unknown fields are rejected by the producer model. Consumers must ignore
   unknown additive fields and unknown events for forward compatibility.
 - A new optional field or enum member requires a minor version. Removing or
@@ -28,6 +31,23 @@ does not emit this event until Phase 2.
 
 `candidate_count` equals the number of source records in the event and
 `selected_count` equals the number whose `selected` flag is true.
+Every `(source_id, chunk_ref)` pair is unique. `selected=true` is the explicit
+attribution that the source/chunk entered the generation context.
+
+## Session and stage facts
+
+`attempt_count` counts all retrieval attempts in the session and
+`query_rewrite_count` counts rewrites. Both are non-negative counters; neither
+the original query nor rewritten query text is permitted in the contract.
+
+Each stage has its own `status` and `failure`. The closed stage taxonomy is:
+
+`query_rewrite`, `dense_retrieval`, `filtering`, `reranking`, and
+`context_selection`.
+
+A stage appears at most once in the final event and summarizes its terminal
+state across the session. A failed overall event identifies at least one failed
+stage; a degraded event identifies at least one degraded or failed stage.
 
 ## Failure taxonomy
 
@@ -58,17 +78,24 @@ classifier confidence are distinct concepts.
 
 ## Version contract
 
-Embedding, chunking, and generation model/strategy names and versions are
-required and non-empty. Reranker model and version are atomic: both are present
-or both are `null` when no reranker was configured. Production values must not
+The contract captures all retrieval dependencies: retrieval pipeline version,
+vector-index provider/version, at least one of `index_version` or
+`corpus_revision`, embedding model/version, query-rewriter model/version,
+reranker model/version, and chunking strategy/version. Generation model/version
+remain recorded for end-to-end reproducibility.
+
+Optional component identities are atomic: query-rewriter model/version and
+reranker model/version are each both present or both `null` when that component
+was not configured. Required values are non-empty. Production values must not
 use placeholders such as `unversioned`.
 
 ## Privacy and retention baseline
 
-The event contains opaque tenant-scoped identifiers, scores, ranks, counts,
-latency, status, failure, and component versions only. It must not contain raw
-queries, chunk/context text, prompts, model answers, API keys, raw exceptions,
-provider responses, or data from another tenant.
+The event contains opaque tenant-scoped identifiers, scores, ranks, attempt and
+rewrite counts, latency, stage/overall status and failure, and component
+versions only. It must not contain original or rewritten query text,
+chunk/context text, prompts, model answers, API keys, raw exceptions, provider
+responses, or data from another tenant.
 
 Phase 0 and the MVP require event delivery, not persistence. If metadata and
 metrics are persisted later, retention is at most 90 days and is
