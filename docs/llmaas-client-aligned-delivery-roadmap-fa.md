@@ -372,8 +372,11 @@ classifier_confidence
 
 ### وضعیت فعلی
 
-`نیمه‌کاره` — registry، chunk index، hash، token/character count و بخشی از
-versioning وجود دارد. model identity، selection facts و backfill کامل نیست.
+`تکمیل‌شده در کد` — شناسه deterministic و tenant-scoped، قرارداد کامل versionها،
+facts مستقل candidate/selected، migration رجیستری، برنامه backfill و گزارش
+coverage inventory پیاده‌سازی و با contract test قفل شده‌اند. اعمال migration
+و رسیدن coverage هر محیط به ۱۰۰٪ gate استقرار همان محیط است. انتشار runtime trace
+همچنان مطابق ترتیب معماری در فاز ۲ انجام می‌شود.
 
 ---
 

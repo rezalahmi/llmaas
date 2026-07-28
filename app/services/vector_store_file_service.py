@@ -1,6 +1,4 @@
-import hashlib
 import os
-import time
 from typing import Optional
 import chromadb
 from fastapi import HTTPException
@@ -11,6 +9,10 @@ from app.services.vector_store_metadata_service import upsert_vector_store_file
 from app.repositories.chunk_repository import (
     delete_chunk_inventory,
     replace_chunk_inventory,
+)
+from app.services.chunk_identity import assign_chunk_refs
+from app.services.retrieval_version_service import (
+    get_retrieval_dependency_versions,
 )
 from app.token_counter import count_tokens
 
@@ -27,6 +29,7 @@ async def attach_file_to_vector_store(
     chunk_overlap: int,
     batch_id: Optional[str] = None,
 ):
+    dependency_versions = get_retrieval_dependency_versions()
     # مسیر فایل از رکورد Postgres خوانده می‌شود
     # فرض می‌کنیم در Postgres ستون storage_path داریم: storage/files/file_id.pdf
     file_path = file_record["storage_path"]
@@ -90,7 +93,31 @@ async def attach_file_to_vector_store(
     # پاک‌سازی قبلی (Idempotency)
     collection.delete(where={"file_id": file_id})
 
-    ids = [f"{file_id}_{i}" for i in range(len(final_chunks))]
+    chunking_parameters = {
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap,
+    }
+    chunk_identities = assign_chunk_refs(
+        final_chunks,
+        api_key_id=file_record["api_key_id"],
+        file_id=file_id,
+        chunking_strategy=dependency_versions.chunking_strategy,
+        chunking_version=dependency_versions.chunking_version,
+        chunking_parameters=chunking_parameters,
+    )
+    ids = [chunk_ref for chunk_ref, _ in chunk_identities]
+    for metadata, chunk_ref in zip(final_metadatas, ids):
+        metadata.update(
+            {
+                "chunk_ref": chunk_ref,
+                "chunking_strategy": dependency_versions.chunking_strategy,
+                "chunking_version": dependency_versions.chunking_version,
+                "embedding_model": dependency_versions.embedding_model,
+                "embedding_version": dependency_versions.embedding_version,
+                "vector_index_provider": dependency_versions.vector_index_provider,
+                "vector_index_version": dependency_versions.vector_index_version,
+            }
+        )
     
     collection.add(
         ids=ids,
@@ -99,7 +126,6 @@ async def attach_file_to_vector_store(
         metadatas=final_metadatas
     )
 
-    embedding_version = os.getenv("EMBEDDING_MODEL_VERSION", "unversioned")
     await replace_chunk_inventory(
         pg,
         api_key_id=file_record["api_key_id"],
@@ -108,19 +134,32 @@ async def attach_file_to_vector_store(
         chunks=[
             {
                 "id": chunk_id,
+                "chunk_ref": chunk_id,
                 "chunk_index": metadata["chunk_index"],
-                "chunking_strategy": "recursive_character",
-                "chunking_version": "v1",
-                "embedding_version": embedding_version,
+                "chunking_strategy": dependency_versions.chunking_strategy,
+                "chunking_version": dependency_versions.chunking_version,
+                "embedding_model": dependency_versions.embedding_model,
+                "embedding_version": dependency_versions.embedding_version,
+                "reranker_model": dependency_versions.reranker_model,
+                "reranker_version": dependency_versions.reranker_version,
+                "generation_model": dependency_versions.generation_model,
+                "generation_version": dependency_versions.generation_version,
+                "vector_index_provider": (
+                    dependency_versions.vector_index_provider
+                ),
+                "vector_index_version": (
+                    dependency_versions.vector_index_version
+                ),
                 "character_count": len(chunk_text),
                 "token_count": count_tokens(chunk_text),
-                "exact_hash": hashlib.sha256(
-                    " ".join(chunk_text.split()).encode("utf-8")
-                ).hexdigest(),
+                "exact_hash": exact_hash,
                 "metadata": metadata,
             }
-            for chunk_id, chunk_text, metadata in zip(
-                ids, final_chunks, final_metadatas
+            for chunk_id, exact_hash, chunk_text, metadata in zip(
+                ids,
+                (exact_hash for _, exact_hash in chunk_identities),
+                final_chunks,
+                final_metadatas,
             )
         ],
     )
@@ -187,6 +226,7 @@ async def detach_file_from_vector_store_pg(
     collection.delete(where={"file_id": file_id})
     await delete_chunk_inventory(
         pg,
+        api_key_id=api_key_id,
         vector_store_id=vector_store_id,
         file_id=file_id,
     )

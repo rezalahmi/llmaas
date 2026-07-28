@@ -5,8 +5,13 @@ from collections import defaultdict
 from typing import List, Dict, Any
 from fastapi import HTTPException
 from app.services.embedding_service import embed_text
-from app.schemas.file_search import FileSearchQuery, FileSearchResultChunk, FileSearchResponse
+from app.schemas.file_search import (
+    FileSearchQuery,
+    FileSearchResultChunk,
+    FileSearchResponse,
+)
 from app.services.reranker_service import rerank_results
+from app.services.retrieval_facts import build_retrieval_candidate_facts
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +76,10 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
                     "file_name": meta.get("file_name", ""),
                     "vector_store_id": vs_id,
                     "document_id": doc_id,
+                    "chunk_ref": meta.get("chunk_ref", doc_id),
                     "text": doc_text,
                     "score": calculate_score_from_distance(dist),
-                    "dense_score": calculate_score_from_distance(dist),
+                    "dense_score": None,
                     "rerank_score": None,
                     "dense_rank": None,
                     "rerank_rank": None,
@@ -90,7 +96,7 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
         logger.info("[search] No results found")
         return FileSearchResponse(results=[])
 
-    all_raw_results.sort(key=lambda item: item["dense_score"], reverse=True)
+    all_raw_results.sort(key=lambda item: item["dense_distance"])
     for dense_rank, item in enumerate(all_raw_results, start=1):
         item["dense_rank"] = dense_rank
 
@@ -122,11 +128,17 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
         reverse=True
     )[:max_results]
 
+    retrieval_facts = build_retrieval_candidate_facts(
+        all_raw_results,
+        final_results,
+    )
+
     return FileSearchResponse(results=[
         FileSearchResultChunk(
             file_id=r["file_id"],
             vector_store_id=r["vector_store_id"],
             document_id=r["document_id"],
+            chunk_ref=r["chunk_ref"],
             text=r["text"],
             score=r["score"],
             dense_score=r.get("dense_score"),
@@ -137,4 +149,4 @@ async def search_in_vector_store(query: FileSearchQuery) -> FileSearchResponse:
             metadata=r["metadata"]
         )
         for r in final_results
-    ])
+    ], retrieval_facts=retrieval_facts)

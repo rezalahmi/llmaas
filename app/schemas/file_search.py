@@ -14,6 +14,7 @@ class FileSearchResultChunk(BaseModel):
     file_id: str
     vector_store_id: str
     document_id: str
+    chunk_ref: str = Field(exclude=True)
     text: str
     score: float
     dense_score: float | None = Field(default=None, exclude=True)
@@ -24,5 +25,22 @@ class FileSearchResultChunk(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class RetrievalCandidateFact(BaseModel):
+    source_id: str
+    chunk_ref: str
+    vector_store_id: str
+    dense_distance: float
+    dense_rank: int
+    dense_relevance_score: None = None
+    rerank_score: float | None = None
+    rerank_rank: int | None = None
+    candidate: bool = True
+    selected: bool
+
+
 class FileSearchResponse(BaseModel):
     results: List[FileSearchResultChunk]
+    retrieval_facts: List[RetrievalCandidateFact] = Field(
+        default_factory=list,
+        exclude=True,
+    )
