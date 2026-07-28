@@ -44,3 +44,4 @@ class FileSearchResponse(BaseModel):
         default_factory=list,
         exclude=True,
     )
+    retrieval_runtime: Dict[str, Any] = Field(default_factory=dict, exclude=True)

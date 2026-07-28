@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.schemas.responses_schema import ResponseRequest
 from app.schemas.file_search import FileSearchQuery
 from app.services.file_search import search_in_vector_store
+from app.services.retrieval_trace_service import build_retrieval_trace
 from app.utility.build_prompt import build_rag_prompt_with_history
 from app.utils import build_prompt, build_messages, convert_to_openai_format, fully_serialize
 from app.services.llm_service import LLMService
@@ -145,9 +146,19 @@ def _extract_text_from_message(msg) -> str:
 
 
 
-async def stream_response(r, conn, key_id, request_id, citations=None):
+def format_retrieval_trace_event(retrieval_trace: dict) -> str:
+    return (
+        "event: response.retrieval_trace\n"
+        f"data: {json.dumps(retrieval_trace, ensure_ascii=False)}\n\n"
+    )
+
+
+async def stream_response(
+    r, conn, key_id, request_id, citations=None, retrieval_trace=None
+):
 
     pubsub = r.pubsub()
+    retrieval_trace_emitted = False
     
     print(f"[STREAM] Opening stream for request_id={request_id}")
     try:
@@ -171,6 +182,9 @@ async def stream_response(r, conn, key_id, request_id, citations=None):
 
 
             if data == "[DONE]":
+                if retrieval_trace is not None and not retrieval_trace_emitted:
+                    yield format_retrieval_trace_event(retrieval_trace)
+                    retrieval_trace_emitted = True
                 
                 print("[STREAM] Received DONE from worker")
                 
@@ -188,6 +202,14 @@ async def stream_response(r, conn, key_id, request_id, citations=None):
                 break
 
             yield data
+
+            if (
+                retrieval_trace is not None
+                and not retrieval_trace_emitted
+                and data.startswith("event: response.created")
+            ):
+                yield format_retrieval_trace_event(retrieval_trace)
+                retrieval_trace_emitted = True
 
             if data.startswith("event: response.usage"):
                 
@@ -368,6 +390,11 @@ async def create_response(
                 try:
                     
                     fs_response = await search_in_vector_store(fs_query)
+                    retrieval_trace = build_retrieval_trace(
+                        fs_response=fs_response,
+                        vector_store_ids=fs_query.vector_store_ids,
+                        generation_model=req.model,
+                    ).model_dump(mode="json")
                     sources = []
                     for i, ch in enumerate(fs_response.results, start=1):
                         meta = ch.metadata or {}
@@ -453,7 +480,8 @@ async def create_response(
                                 "text": output
                             }],
                             "citations": sources
-                        }]
+                        }],
+                        "retrieval_trace": retrieval_trace,
                     })
                 if req.stream:
                     # همون منطق استریم معمولی، فقط prompt همون rag_prompt است
@@ -494,7 +522,14 @@ async def create_response(
                     print("[RAG STREAM] enqueue_stream DONE")
                     # StreamingResponse که هم متن و هم citation را برمی‌گرداند
                     return StreamingResponse(
-                        stream_response(r, conn, user["key_id"], request_id, sources),
+                        stream_response(
+                            r,
+                            conn,
+                            user["key_id"],
+                            request_id,
+                            sources,
+                            retrieval_trace,
+                        ),
                         media_type="text/event-stream",
                         headers={
                             "Cache-Control": "no-cache",
