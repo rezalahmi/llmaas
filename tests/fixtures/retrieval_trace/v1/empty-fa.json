@@ -1,0 +1,26 @@
+{
+  "type": "retrieval_trace",
+  "schema_version": "1.0",
+  "trace_id": "ragtrace_empty_fa_001",
+  "retrieval_status": "completed",
+  "retrieval_failure": "no_candidates",
+  "vector_store_ids": ["vs_fa_docs"],
+  "retrieved_sources": [],
+  "metrics": {"candidate_count": 0, "selected_count": 0, "latency_ms": 31},
+  "versions": {
+    "embedding_model": "embedding-fa",
+    "embedding_version": "4",
+    "reranker_model": "reranker-fa",
+    "reranker_version": "2",
+    "chunking_strategy": "recursive_character",
+    "chunking_version": "5",
+    "generation_model": "model-fa",
+    "generation_version": "1"
+  },
+  "confidence": {
+    "answer_confidence": null,
+    "confidence_status": "not_supported",
+    "confidence_method": null,
+    "calibration_version": null
+  }
+}

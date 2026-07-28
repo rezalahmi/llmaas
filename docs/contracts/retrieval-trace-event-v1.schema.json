@@ -1,0 +1,323 @@
+{
+  "$defs": {
+    "RetrievalConfidence": {
+      "additionalProperties": false,
+      "properties": {
+        "answer_confidence": {
+          "title": "Answer Confidence",
+          "type": "null"
+        },
+        "confidence_status": {
+          "const": "not_supported",
+          "title": "Confidence Status",
+          "type": "string"
+        },
+        "confidence_method": {
+          "title": "Confidence Method",
+          "type": "null"
+        },
+        "calibration_version": {
+          "title": "Calibration Version",
+          "type": "null"
+        }
+      },
+      "required": [
+        "answer_confidence",
+        "confidence_status",
+        "confidence_method",
+        "calibration_version"
+      ],
+      "title": "RetrievalConfidence",
+      "type": "object"
+    },
+    "RetrievalFailure": {
+      "enum": [
+        "no_candidates",
+        "below_relevance_threshold",
+        "filter_eliminated_all",
+        "reranker_eliminated_all",
+        "source_unavailable",
+        "index_unavailable",
+        "timeout",
+        "provider_error",
+        "unknown"
+      ],
+      "title": "RetrievalFailure",
+      "type": "string"
+    },
+    "RetrievalMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_count": {
+          "minimum": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "selected_count": {
+          "minimum": 0,
+          "title": "Selected Count",
+          "type": "integer"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "candidate_count",
+        "selected_count",
+        "latency_ms"
+      ],
+      "title": "RetrievalMetrics",
+      "type": "object"
+    },
+    "RetrievalStatus": {
+      "enum": [
+        "not_requested",
+        "started",
+        "completed",
+        "failed",
+        "degraded"
+      ],
+      "title": "RetrievalStatus",
+      "type": "string"
+    },
+    "RetrievalVersions": {
+      "additionalProperties": false,
+      "properties": {
+        "embedding_model": {
+          "minLength": 1,
+          "title": "Embedding Model",
+          "type": "string"
+        },
+        "embedding_version": {
+          "minLength": 1,
+          "title": "Embedding Version",
+          "type": "string"
+        },
+        "reranker_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reranker Model"
+        },
+        "reranker_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reranker Version"
+        },
+        "chunking_strategy": {
+          "minLength": 1,
+          "title": "Chunking Strategy",
+          "type": "string"
+        },
+        "chunking_version": {
+          "minLength": 1,
+          "title": "Chunking Version",
+          "type": "string"
+        },
+        "generation_model": {
+          "minLength": 1,
+          "title": "Generation Model",
+          "type": "string"
+        },
+        "generation_version": {
+          "minLength": 1,
+          "title": "Generation Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "embedding_model",
+        "embedding_version",
+        "reranker_model",
+        "reranker_version",
+        "chunking_strategy",
+        "chunking_version",
+        "generation_model",
+        "generation_version"
+      ],
+      "title": "RetrievalVersions",
+      "type": "object"
+    },
+    "RetrievedSource": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "description": "Opaque LLMaaS file identifier.",
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "chunk_ref": {
+          "description": "Stable, tenant-scoped, opaque chunk identifier.",
+          "minLength": 1,
+          "title": "Chunk Ref",
+          "type": "string"
+        },
+        "dense_rank": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "One-based rank returned by dense retrieval.",
+          "title": "Dense Rank"
+        },
+        "dense_distance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Provider distance; lower is better. It is not confidence.",
+          "title": "Dense Distance"
+        },
+        "dense_relevance_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Calibrated dense relevance only. It remains null until a named, versioned calibration is introduced.",
+          "title": "Dense Relevance Score"
+        },
+        "rerank_rank": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "One-based rank after reranking; null when not reranked.",
+          "title": "Rerank Rank"
+        },
+        "rerank_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Raw provider reranker score with provider semantics; it is not a probability or answer confidence.",
+          "title": "Rerank Score"
+        },
+        "selected": {
+          "description": "True only when the chunk entered generation context.",
+          "title": "Selected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source_id",
+        "chunk_ref",
+        "dense_rank",
+        "dense_distance",
+        "dense_relevance_score",
+        "rerank_rank",
+        "rerank_score",
+        "selected"
+      ],
+      "title": "RetrievedSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "retrieval_trace",
+      "title": "Type",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "trace_id": {
+      "description": "Opaque identifier used to correlate facts across systems.",
+      "minLength": 1,
+      "pattern": "^ragtrace_[A-Za-z0-9_-]+$",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "retrieval_status": {
+      "$ref": "#/$defs/RetrievalStatus"
+    },
+    "retrieval_failure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RetrievalFailure"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "vector_store_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Vector Store Ids",
+      "type": "array"
+    },
+    "retrieved_sources": {
+      "items": {
+        "$ref": "#/$defs/RetrievedSource"
+      },
+      "title": "Retrieved Sources",
+      "type": "array"
+    },
+    "metrics": {
+      "$ref": "#/$defs/RetrievalMetrics"
+    },
+    "versions": {
+      "$ref": "#/$defs/RetrievalVersions"
+    },
+    "confidence": {
+      "$ref": "#/$defs/RetrievalConfidence"
+    }
+  },
+  "required": [
+    "type",
+    "schema_version",
+    "trace_id",
+    "retrieval_status",
+    "retrieval_failure",
+    "vector_store_ids",
+    "retrieved_sources",
+    "metrics",
+    "versions",
+    "confidence"
+  ],
+  "title": "RetrievalTraceEvent",
+  "type": "object"
+}

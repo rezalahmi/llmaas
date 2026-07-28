@@ -1,0 +1,37 @@
+{
+  "type": "retrieval_trace",
+  "schema_version": "1.0",
+  "trace_id": "ragtrace_success_en_001",
+  "retrieval_status": "completed",
+  "retrieval_failure": null,
+  "vector_store_ids": ["vs_en_docs"],
+  "retrieved_sources": [
+    {
+      "source_id": "file_en_42",
+      "chunk_ref": "chunk_en_42_18",
+      "dense_rank": 2,
+      "dense_distance": 0.29,
+      "dense_relevance_score": null,
+      "rerank_rank": 1,
+      "rerank_score": 0.86,
+      "selected": true
+    }
+  ],
+  "metrics": {"candidate_count": 1, "selected_count": 1, "latency_ms": 93},
+  "versions": {
+    "embedding_model": "embedding-x",
+    "embedding_version": "3",
+    "reranker_model": "reranker-y",
+    "reranker_version": "2",
+    "chunking_strategy": "recursive_character",
+    "chunking_version": "5",
+    "generation_model": "model-z",
+    "generation_version": "1"
+  },
+  "confidence": {
+    "answer_confidence": null,
+    "confidence_status": "not_supported",
+    "confidence_method": null,
+    "calibration_version": null
+  }
+}
