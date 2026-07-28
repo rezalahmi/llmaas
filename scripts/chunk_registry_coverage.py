@@ -4,10 +4,31 @@ import argparse
 import asyncio
 import json
 import os
+from decimal import Decimal
 
 import asyncpg
 
 from app.repositories.chunk_repository import get_chunk_registry_coverage
+
+
+def build_coverage_report(row) -> dict:
+    report = {
+        key: int(value) if isinstance(value, Decimal) else value
+        for key, value in dict(row).items()
+    }
+    total_attachments = report["total_attachments"]
+    report["attachment_coverage_percent"] = (
+        round(float(report["complete_attachments"]) * 100 / total_attachments, 2)
+        if total_attachments
+        else 100.0
+    )
+    total_chunks = report["total_chunks"]
+    report["fully_versioned_coverage_percent"] = (
+        round(float(report["fully_versioned_chunks"]) * 100 / total_chunks, 2)
+        if total_chunks
+        else 100.0
+    )
+    return report
 
 
 def parse_args():
@@ -36,19 +57,7 @@ async def run():
     finally:
         await pg.close()
 
-    report = dict(row)
-    total_attachments = report["total_attachments"]
-    report["attachment_coverage_percent"] = (
-        round(report["complete_attachments"] * 100 / total_attachments, 2)
-        if total_attachments
-        else 100.0
-    )
-    total_chunks = report["total_chunks"]
-    report["fully_versioned_coverage_percent"] = (
-        round(report["fully_versioned_chunks"] * 100 / total_chunks, 2)
-        if total_chunks
-        else 100.0
-    )
+    report = build_coverage_report(row)
     print(json.dumps(report, sort_keys=True))
     if report["attachment_coverage_percent"] < args.fail_under:
         raise SystemExit(1)
