@@ -26,7 +26,7 @@ def build_coverage_report(row) -> dict:
     report["fully_versioned_coverage_percent"] = (
         round(float(report["fully_versioned_chunks"]) * 100 / total_chunks, 2)
         if total_chunks
-        else 100.0
+        else (100.0 if total_attachments == 0 else 0.0)
     )
     return report
 
