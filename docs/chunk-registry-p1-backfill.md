@@ -10,11 +10,20 @@ re-ingested with explicit P1 configuration.
 
 1. Apply `009_versioned_chunk_identity.sql` and
    `010_chunk_registry_backfill.sql`.
-2. Set non-placeholder values for:
-   `EMBEDDING_MODEL`, `EMBEDDING_MODEL_VERSION`, `RERANKER_MODEL`,
-   `RERANKER_MODEL_VERSION`, `CHUNKING_STRATEGY`, `CHUNKING_VERSION`,
-   `GENERATION_MODEL`, `GENERATION_MODEL_VERSION`, `VECTOR_INDEX_PROVIDER`,
-   and `VECTOR_INDEX_VERSION`.
+2. Retrieval dependency identity is centralized in `app/config.py`. Environment
+   variables are optional overrides, not mandatory deployment settings. Current
+   code-derived defaults are:
+
+   - embedding: `embedding-service` / `http-api-v1`;
+   - reranker: `reranker-service` / `http-api-v1`;
+   - chunking: `recursive_character` / `1`;
+   - generation: model name and tag parsed from `DEFAULT_MODEL`;
+   - vector index: `chroma` / installed Chroma client package version.
+
+   The external embedding and reranker APIs currently expose no model metadata,
+   so v1 records their service contract identity. When those services expose
+   model name/version, set the corresponding optional env overrides or consume
+   their metadata response through change control.
 3. Run the global attachment-aware coverage inventory. It detects ready
    attachments with no registry rows, so an empty registry cannot produce a
    false 100% result. The report contains counts only and never reads content:

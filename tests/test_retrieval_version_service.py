@@ -27,11 +27,18 @@ def test_production_rejects_unversioned_dependency(monkeypatch):
         get_retrieval_dependency_versions(production=True)
 
 
-def test_production_rejects_missing_dependency(monkeypatch):
+def test_production_uses_central_code_defaults_when_env_is_missing(monkeypatch):
     for name in VERSION_ENV:
         monkeypatch.delenv(name, raising=False)
-    with pytest.raises(RuntimeError, match="embedding_model"):
-        get_retrieval_dependency_versions(production=True)
+    versions = get_retrieval_dependency_versions(production=True)
+    assert versions.embedding_model == "embedding-service"
+    assert versions.embedding_version == "http-api-v1"
+    assert versions.reranker_model == "reranker-service"
+    assert versions.chunking_strategy == "recursive_character"
+    assert versions.generation_model == "gemma4"
+    assert versions.generation_version == "e4b"
+    assert versions.vector_index_provider == "chroma"
+    assert versions.vector_index_version
 
 
 def test_production_accepts_complete_version_contract(monkeypatch):

@@ -3,6 +3,8 @@
 import os
 from dataclasses import asdict, dataclass
 
+from app.config import settings
+
 
 INVALID_VERSION_VALUES = {"", "unknown", "unversioned"}
 PRODUCTION_ENVIRONMENTS = {"production", "stage", "staging"}
@@ -45,21 +47,50 @@ def get_retrieval_dependency_versions(
         environment in PRODUCTION_ENVIRONMENTS if production is None else production
     )
 
-    def configured(name: str, development_default: str) -> str:
-        return os.getenv(name, "" if is_production else development_default)
+    default_generation_model = settings.DEFAULT_MODEL
+    default_generation_version = "model-tag-v1"
+    if ":" in settings.DEFAULT_MODEL:
+        default_generation_model, default_generation_version = (
+            settings.DEFAULT_MODEL.rsplit(":", 1)
+        )
+
+    def configured(name: str, code_default: str | None) -> str:
+        return os.getenv(name) or code_default or ""
 
     versions = RetrievalDependencyVersions(
-        embedding_model=configured("EMBEDDING_MODEL", "embedding-service"),
-        embedding_version=configured("EMBEDDING_MODEL_VERSION", "dev-1"),
-        reranker_model=configured("RERANKER_MODEL", "reranker-service"),
-        reranker_version=configured("RERANKER_MODEL_VERSION", "dev-1"),
-        chunking_strategy=configured(
-            "CHUNKING_STRATEGY", "recursive_character"
+        embedding_model=configured("EMBEDDING_MODEL", settings.EMBEDDING_MODEL),
+        embedding_version=configured(
+            "EMBEDDING_MODEL_VERSION",
+            settings.EMBEDDING_MODEL_VERSION,
         ),
-        chunking_version=configured("CHUNKING_VERSION", "1"),
-        generation_model=configured("GENERATION_MODEL", "gemma4:e4b"),
-        generation_version=configured("GENERATION_MODEL_VERSION", "dev-1"),
-        vector_index_provider=configured("VECTOR_INDEX_PROVIDER", "chroma"),
-        vector_index_version=configured("VECTOR_INDEX_VERSION", "dev-1"),
+        reranker_model=configured("RERANKER_MODEL", settings.RERANKER_MODEL),
+        reranker_version=configured(
+            "RERANKER_MODEL_VERSION",
+            settings.RERANKER_MODEL_VERSION,
+        ),
+        chunking_strategy=configured(
+            "CHUNKING_STRATEGY",
+            settings.CHUNKING_STRATEGY,
+        ),
+        chunking_version=configured(
+            "CHUNKING_VERSION",
+            settings.CHUNKING_VERSION,
+        ),
+        generation_model=configured(
+            "GENERATION_MODEL",
+            settings.GENERATION_MODEL or default_generation_model,
+        ),
+        generation_version=configured(
+            "GENERATION_MODEL_VERSION",
+            settings.GENERATION_MODEL_VERSION or default_generation_version,
+        ),
+        vector_index_provider=configured(
+            "VECTOR_INDEX_PROVIDER",
+            settings.VECTOR_INDEX_PROVIDER,
+        ),
+        vector_index_version=configured(
+            "VECTOR_INDEX_VERSION",
+            settings.VECTOR_INDEX_VERSION,
+        ),
     )
     return versions.validate(production=is_production)

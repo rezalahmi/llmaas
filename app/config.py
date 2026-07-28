@@ -1,9 +1,25 @@
 # app\config.py
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from importlib.metadata import PackageNotFoundError, version
+
+
+def installed_package_version(package: str, fallback: str) -> str:
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return fallback
+
+
+CHROMA_CLIENT_VERSION = installed_package_version(
+    "chromadb",
+    "client-api-v1",
+)
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     # Security
     ADMIN_SECRET: Optional[str] = None
     
@@ -22,9 +38,19 @@ class Settings(BaseSettings):
     # Model
     DEFAULT_MODEL: str = "gemma4:e4b"
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    # Retrieval dependency identity. Environment variables with these names
+    # remain optional overrides; defaults describe the implementation in this
+    # repository and are deliberately versioned rather than "unversioned".
+    EMBEDDING_MODEL: str = "embedding-service"
+    EMBEDDING_MODEL_VERSION: str = "http-api-v1"
+    RERANKER_MODEL: str = "reranker-service"
+    RERANKER_MODEL_VERSION: str = "http-api-v1"
+    CHUNKING_STRATEGY: str = "recursive_character"
+    CHUNKING_VERSION: str = "1"
+    GENERATION_MODEL: Optional[str] = None
+    GENERATION_MODEL_VERSION: Optional[str] = None
+    VECTOR_INDEX_PROVIDER: str = "chroma"
+    VECTOR_INDEX_VERSION: str = CHROMA_CLIENT_VERSION
 
     def model_post_init(self, __context):
         # اگر celery تنظیم نشده باشد از redis استفاده کن
